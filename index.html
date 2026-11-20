@@ -1,0 +1,1427 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>かぶくんコンテスト</title><meta name="description" content="かぶくんを水で増やして、こんぼうでボコボコにする30秒の物理ミニゲーム"><meta name="theme-color" content="#5ec2ff"></head><body><title>かぶくんコンテスト</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mochiy+Pop+One&family=M+PLUS+Rounded+1c:wght@500;800&display=swap">
+<style>
+/* Layout: full-bleed 3D field, thin HUD strip at the top, thumb-zone tool dock at the bottom. Single bright "garden in the sky" look. */
+:root {
+  --ink: #1d2546;
+  --paper: #fffaf0;
+  --sun: #ffd23f;
+  --coral: #ff5a5f;
+  --water: #36b3ff;
+  --leaf: #4fb648;
+  --sky: #a9e0ff;
+  --font-display: "Mochiy Pop One", "M PLUS Rounded 1c", "Hiragino Maru Gothic ProN", system-ui, sans-serif;
+  --font-body: "M PLUS Rounded 1c", "Hiragino Maru Gothic ProN", system-ui, sans-serif;
+  color-scheme: light;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; overflow: hidden; background: var(--sky); color: var(--ink); }
+body {
+  font-family: var(--font-body);
+  touch-action: none; overscroll-behavior: none;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+#game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+.outline { paint-order: stroke fill; -webkit-text-stroke: 6px var(--ink); color: #fff; }
+
+/* ---------- HUD ---------- */
+#hud {
+  position: fixed; left: 0; right: 0; top: 0; pointer-events: none;
+  padding: calc(env(safe-area-inset-top, 0px) + 10px) max(14px, env(safe-area-inset-right, 0px)) 0 max(14px, env(safe-area-inset-left, 0px));
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: start; gap: 8px;
+}
+.chip {
+  justify-self: start; display: flex; flex-direction: column; align-items: center;
+  background: var(--paper); border: 3px solid var(--ink); border-radius: 16px;
+  padding: 4px 12px 6px; box-shadow: 0 4px 0 var(--ink); min-width: 64px;
+}
+.chip small { font-size: 11px; font-weight: 800; letter-spacing: .08em; }
+.chip b { font-family: var(--font-display); font-size: 26px; line-height: 1; font-variant-numeric: tabular-nums; }
+#timeChip.hurry { background: var(--coral); color: #fff; animation: pulse .5s infinite alternate; }
+@keyframes pulse { to { transform: scale(1.08); } }
+#scoreBox { text-align: center; }
+#score { font-family: var(--font-display); font-size: 44px; line-height: 1; font-variant-numeric: tabular-nums; }
+#score.bump { animation: bump .25s ease-out; }
+@keyframes bump { 0% { transform: scale(1.35); } 100% { transform: scale(1); } }
+#combo { font-family: var(--font-display); font-size: 18px; margin-top: 2px; opacity: 0; transition: opacity .2s; color: var(--sun); }
+#combo.on { opacity: 1; }
+#multChip { justify-self: end; }
+#multChip b { color: var(--water); }
+.meter { width: 58px; height: 8px; border-radius: 6px; background: #dfe8f3; border: 2px solid var(--ink); overflow: hidden; margin-top: 3px; }
+.meter i { display: block; height: 100%; width: 0%; background: var(--water); transition: width .1s linear; }
+
+/* ---------- dock ---------- */
+#dock {
+  position: fixed; left: 0; right: 0; bottom: 0; pointer-events: none;
+  padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 14px);
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+}
+#hint {
+  font-weight: 800; font-size: 14px; background: rgba(29,37,70,.78); color: #fff;
+  padding: 6px 14px; border-radius: 999px; transition: opacity .3s;
+}
+.tools { display: flex; gap: 18px; pointer-events: auto; }
+.tool {
+  appearance: none; border: 4px solid var(--ink); background: var(--paper); color: var(--ink);
+  width: 92px; height: 92px; border-radius: 50%; padding: 0; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  box-shadow: 0 6px 0 var(--ink); font-family: var(--font-body); font-weight: 800; font-size: 13px;
+  transition: transform .12s, box-shadow .12s, background .12s; touch-action: manipulation;
+}
+.tool svg { width: 44px; height: 44px; }
+.tool[aria-pressed="true"] { background: var(--sun); transform: translateY(-4px) scale(1.06); box-shadow: 0 10px 0 var(--ink); }
+.tool:active { transform: translateY(3px); box-shadow: 0 3px 0 var(--ink); }
+.tool:focus-visible, .btn:focus-visible { outline: 4px solid var(--water); outline-offset: 3px; }
+
+/* ---------- pops ---------- */
+#pops { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+.pop {
+  position: absolute; transform: translate(-50%, -50%); white-space: nowrap; text-align: center;
+  font-family: var(--font-display); animation: popUp .95s cubic-bezier(.2,1.4,.4,1) forwards;
+}
+.pop .w { display: block; font-size: 38px; }
+.pop .p { display: block; font-size: 22px; color: var(--sun); }
+.pop.big .w { font-size: 58px; color: var(--sun); }
+.pop.water .w { font-size: 26px; color: #bfe9ff; }
+@keyframes popUp {
+  0% { transform: translate(-50%, -50%) scale(.2) rotate(-8deg); opacity: 0; }
+  18% { transform: translate(-50%, -60%) scale(1.25) rotate(4deg); opacity: 1; }
+  70% { transform: translate(-50%, -95%) scale(1) rotate(0); opacity: 1; }
+  100% { transform: translate(-50%, -125%) scale(.9); opacity: 0; }
+}
+#banner {
+  position: fixed; left: 0; right: 0; top: 34%; text-align: center; pointer-events: none;
+  font-family: var(--font-display); font-size: clamp(44px, 14vw, 88px); opacity: 0;
+}
+#banner.show { animation: banner 1s ease-out forwards; }
+@keyframes banner {
+  0% { opacity: 0; transform: scale(2.4); } 15% { opacity: 1; transform: scale(.95); }
+  25% { transform: scale(1.05); } 75% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.1); }
+}
+#flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+
+/* ---------- screens ---------- */
+.screen {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  padding: calc(env(safe-area-inset-top, 0px) + 16px) max(16px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 16px) max(16px, env(safe-area-inset-left, 0px));
+  background: linear-gradient(to bottom, rgba(169,224,255,.0) 0%, rgba(29,37,70,.35) 100%);
+}
+.card {
+  width: min(380px, 100%); background: var(--paper); border: 4px solid var(--ink); border-radius: 28px;
+  box-shadow: 0 10px 0 var(--ink); padding: 20px 20px 22px; text-align: center;
+  display: flex; flex-direction: column; gap: 14px; align-items: center;
+}
+#title .card { margin-top: 42vh; background: transparent; border: 0; box-shadow: none; padding: 0; }
+.logo { font-family: var(--font-display); line-height: 1.05; margin: 0; font-weight: 400; }
+.logo .s { display: block; font-size: 26px; color: var(--ink); -webkit-text-stroke: 0; }
+.logo .l { display: block; font-size: clamp(44px, 13vw, 64px); letter-spacing: .02em; }
+.logo .l em { font-style: normal; color: var(--sun); }
+.rules { list-style: none; margin: 0; padding: 12px 14px; display: grid; gap: 6px; text-align: left;
+  background: var(--paper); border: 3px solid var(--ink); border-radius: 18px; font-weight: 800; font-size: 14px; width: 100%; box-sizing: border-box; }
+.rules li { display: flex; gap: 10px; align-items: center; }
+.rules .ic { flex: 0 0 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-family: var(--font-display); font-size: 13px; }
+.btn {
+  appearance: none; border: 4px solid var(--ink); background: var(--coral); color: #fff; cursor: pointer;
+  font-family: var(--font-display); font-size: 28px; padding: 12px 40px 14px; border-radius: 999px;
+  box-shadow: 0 7px 0 var(--ink); touch-action: manipulation; transition: transform .1s, box-shadow .1s;
+}
+.btn:active { transform: translateY(5px); box-shadow: 0 2px 0 var(--ink); }
+.btn.sub { background: var(--paper); color: var(--ink); font-size: 16px; padding: 8px 22px 10px; box-shadow: 0 4px 0 var(--ink); }
+.best { font-weight: 800; font-size: 13px; }
+#loading { font-family: var(--font-display); font-size: 20px; }
+
+#result h2 { font-family: var(--font-display); font-weight: 400; margin: 0; font-size: 22px; }
+#rScore { font-family: var(--font-display); font-size: 64px; line-height: 1; font-variant-numeric: tabular-nums; }
+#rRank { font-family: var(--font-display); font-size: 24px; background: var(--ink); color: var(--sun); padding: 6px 16px; border-radius: 12px; }
+.stats { width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.stats div { border: 3px solid var(--ink); border-radius: 14px; padding: 6px 4px; }
+.stats small { display: block; font-size: 11px; font-weight: 800; }
+.stats b { font-family: var(--font-display); font-size: 20px; font-variant-numeric: tabular-nums; }
+#newBest { color: var(--coral); font-family: var(--font-display); font-size: 18px; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+#copied { font-size: 12px; font-weight: 800; min-height: 1em; }
+
+@media (prefers-reduced-motion: reduce) { .pop, #banner.show, #score.bump { animation-duration: .01s; } }
+</style>
+
+<canvas id="game" aria-label="かぶくんのいる畑"></canvas>
+<div id="pops"></div>
+<div id="flash"></div>
+<div id="banner" class="outline"></div>
+
+<div id="hud" hidden>
+  <div class="chip" id="timeChip"><small>のこり</small><b id="time">30.0</b></div>
+  <div id="scoreBox"><div id="score" class="outline">0</div><div id="combo" class="outline"></div></div>
+  <div class="chip" id="multChip"><small>かぶ</small><b id="mult">1匹</b><div class="meter"><i id="fatBar"></i></div></div>
+</div>
+
+<div id="dock" hidden>
+  <div id="hint">画面をなぞって水をかけよう</div>
+  <div class="tools" role="group" aria-label="道具">
+    <button class="tool" id="toolHose" aria-pressed="true" type="button">
+      <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 5 C24 5 11 20 11 29 a13 13 0 0 0 26 0 C37 20 24 5 24 5Z" fill="#36b3ff" stroke="#1d2546" stroke-width="3.5" stroke-linejoin="round"/><path d="M18 30 a6 6 0 0 0 6 6" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/></svg>
+      ホース
+    </button>
+    <button class="tool" id="toolFlail" aria-pressed="false" type="button">
+      <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M8 40 L17 31" stroke="#a0623a" stroke-width="6" stroke-linecap="round"/><path d="M17 31 Q22 22 27 24" fill="none" stroke="#1d2546" stroke-width="3" stroke-dasharray="3 3"/><g stroke="#1d2546" stroke-width="3" stroke-linejoin="round"><path d="M31 9 l2 -6 l2 6 M43 21 l6 2 l-6 2 M31 37 l2 6 l2 -6 M23 21 l-6 2 l6 2" fill="#cfd6e2"/><circle cx="33" cy="23" r="10" fill="#b8763f"/></g><circle cx="29.5" cy="19.5" r="3" fill="#e6a86f"/></svg>
+      こんぼう
+    </button>
+  </div>
+</div>
+
+<section id="title" class="screen">
+  <div class="card">
+    <h1 class="logo outline"><span class="s outline" style="-webkit-text-stroke:5px #fff;color:var(--ink)">ストレス発散！</span><span class="l">かぶくん<br><em>コンテスト</em></span></h1>
+    <ol class="rules">
+      <li><span class="ic" style="background:var(--water)">1</span>水で太らせると、かぶくんが<b>ぶんれつ</b>して増える</li>
+      <li><span class="ic" style="background:#b8763f">2</span>増えたかぶを、こんぼうでまとめてボコれ</li>
+      <li><span class="ic" style="background:var(--coral)">3</span>太ってるほど高得点。制限時間は30秒</li>
+    </ol>
+    <div id="loading">かぶくん準備中…</div>
+    <button class="btn" id="startBtn" type="button" hidden>はじめる</button>
+    <div class="best outline" style="-webkit-text-stroke:4px var(--ink)" id="bestTitle"></div>
+  </div>
+</section>
+
+<section id="result" class="screen" hidden>
+  <div class="card">
+    <h2>しゅうりょう！</h2>
+    <div id="rScore">0</div>
+    <div id="rRank">かぶ見習い</div>
+    <div id="newBest" hidden>自己ベスト更新！</div>
+    <div class="stats">
+      <div><small>ヒット</small><b id="rHits">0</b></div>
+      <div><small>最大コンボ</small><b id="rCombo">0</b></div>
+      <div><small>最高ふっとび</small><b id="rFly">0m</b></div>
+    </div>
+    <div class="best" id="rBest"></div>
+    <div class="row">
+      <button class="btn" id="againBtn" type="button">もう一回</button>
+    </div>
+    <button class="btn sub" id="copyBtn" type="button">結果をコピー</button>
+    <div id="copied" aria-live="polite"></div>
+  </div>
+</section>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+
+const $ = (s) => document.querySelector(s);
+const rand = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+
+// ======================================================================
+// Renderer / scene
+// ======================================================================
+const canvas = $('#game');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.NoToneMapping;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 250);
+
+function canvasTex(w, h, draw) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+scene.background = canvasTex(4, 256, (g, w, h) => {
+  const gr = g.createLinearGradient(0, 0, 0, h);
+  gr.addColorStop(0, '#5ec2ff'); gr.addColorStop(0.55, '#bfe9ff'); gr.addColorStop(1, '#fff4dc');
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+});
+scene.fog = new THREE.Fog(0xd8f0ff, 30, 80);
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x9fc58a, 1.5));
+const sun = new THREE.DirectionalLight(0xffffff, 2.0);
+sun.position.set(4, 10, 6); scene.add(sun);
+
+const toonGrad = (() => {
+  const t = new THREE.DataTexture(new Uint8Array([196, 206, 210, 255, 232, 238, 240, 255, 255, 255, 255, 255]), 3, 1, THREE.RGBAFormat);
+  t.minFilter = t.magFilter = THREE.NearestFilter; t.needsUpdate = true; return t;
+})();
+const toon = (color, extra = {}) => new THREE.MeshToonMaterial({ color, gradientMap: toonGrad, ...extra });
+
+// ---------------- floating garden island ----------------
+const ARENA_R = 4.0;
+const WALL_R = ARENA_R - 0.18; // 内側の壁面。高さ無制限の円柱として当たる
+const WALL_E = 0.78;           // 壁の反発係数
+const grassTex = canvasTex(512, 512, (g, w, h) => {
+  g.fillStyle = '#8fd65e'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 12; i++) { if (i % 2) { g.fillStyle = '#82cb52'; g.fillRect(i * w / 12, 0, w / 12, h); } }
+  g.strokeStyle = '#6cb544'; g.lineWidth = 16; g.beginPath(); g.arc(w / 2, h / 2, w / 2 - 10, 0, Math.PI * 2); g.stroke();
+  const cols = ['#fff', '#ffe066', '#ff9fb3'];
+  for (let i = 0; i < 70; i++) {
+    const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * (w / 2 - 26);
+    g.fillStyle = cols[i % 3]; g.beginPath(); g.arc(w / 2 + Math.cos(a) * r, h / 2 + Math.sin(a) * r, 3.5, 0, Math.PI * 2); g.fill();
+  }
+});
+const island = new THREE.Group(); scene.add(island);
+{
+  const top = new THREE.Mesh(new THREE.CylinderGeometry(ARENA_R, ARENA_R, 0.34, 64), [toon(0x7cc84f), toon(0xffffff, { map: grassTex }), toon(0x7cc84f)]);
+  top.position.y = -0.17; island.add(top);
+  const soil = new THREE.Mesh(new THREE.CylinderGeometry(ARENA_R * 0.99, ARENA_R * 0.62, 1.6, 48), toon(0xc0814f));
+  soil.position.y = -0.34 - 0.8; island.add(soil);
+  const rock = new THREE.Mesh(new THREE.ConeGeometry(ARENA_R * 0.62, 3.2, 9), toon(0x93603d));
+  rock.rotation.x = Math.PI; rock.position.y = -1.94 - 1.6; island.add(rock);
+  // a few turnip-leaf tufts on the rim
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * Math.PI * 2 + 0.2;
+    const tuft = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.38, 5), toon(0x5fb83f));
+    tuft.position.set(Math.cos(a) * (ARENA_R - 0.05), 0.17, Math.sin(a) * (ARENA_R - 0.05));
+    island.add(tuft);
+  }
+}
+// ---- 壁: 下はしっかりした柵、上へ行くほど透けるバリア ----
+const wallFx = { flash: 0 };
+const barrierTex = canvasTex(64, 256, (g, w, h) => {
+  const gr = g.createLinearGradient(0, 0, 0, h);
+  gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.6, 'rgba(255,255,255,0.12)'); gr.addColorStop(0.9, 'rgba(255,255,255,0.55)'); gr.addColorStop(1, 'rgba(255,255,255,0.8)');
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+  g.fillStyle = 'rgba(255,255,255,0.5)'; for (let y = h * 0.7; y < h; y += 16) g.fillRect(0, y, w, 2);
+});
+const barrierMat = new THREE.MeshBasicMaterial({ color: 0x9fe6ff, map: barrierTex, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false });
+{
+  const WH = 4;
+  const barrier = new THREE.Mesh(new THREE.CylinderGeometry(WALL_R + 0.02, WALL_R + 0.02, WH, 64, 1, true), barrierMat);
+  barrier.position.y = WH / 2; barrier.renderOrder = 2; island.add(barrier);
+  // 低い柵 (クッション付き)
+  const pad = new THREE.Mesh(new THREE.TorusGeometry(WALL_R + 0.1, 0.16, 10, 72), toon(0xff7a9c));
+  pad.rotation.x = Math.PI / 2; pad.position.y = 0.55; island.add(pad);
+  const pad2 = new THREE.Mesh(new THREE.TorusGeometry(WALL_R + 0.1, 0.11, 8, 72), toon(0xffffff));
+  pad2.rotation.x = Math.PI / 2; pad2.position.y = 0.12; island.add(pad2);
+  for (let i = 0; i < 24; i++) {
+    const a = (i / 24) * Math.PI * 2;
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.08, 0.7, 8), toon(i % 2 ? 0xffd25a : 0xffffff));
+    post.position.set(Math.cos(a) * (WALL_R + 0.1), 0.33, Math.sin(a) * (WALL_R + 0.1)); island.add(post);
+  }
+}
+// clouds
+{
+  const mat = toon(0xffffff, { transparent: true, opacity: 0.92 });
+  const geo = new THREE.SphereGeometry(1, 16, 12);
+  for (let i = 0; i < 9; i++) {
+    const g = new THREE.Group();
+    const a = (i / 9) * Math.PI * 2, r = rand(9, 16);
+    g.position.set(Math.cos(a) * r, rand(-7, -2.5), Math.sin(a) * r - 4);
+    for (let k = 0; k < 4; k++) {
+      const s = new THREE.Mesh(geo, mat); const sc = rand(1.0, 2.0);
+      s.scale.set(sc * 1.4, sc * 0.75, sc); s.position.set(k * 1.5 - 2.2, rand(-0.3, 0.4), rand(-0.6, 0.6)); g.add(s);
+    }
+    scene.add(g);
+  }
+}
+// blob shadow
+const shadowTex = canvasTex(128, 128, (g, w, h) => {
+  const gr = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+  gr.addColorStop(0, 'rgba(30,50,40,0.45)'); gr.addColorStop(1, 'rgba(30,50,40,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+});
+
+// ======================================================================
+// Audio (synthesized)
+// ======================================================================
+const AU = { ctx: null };
+function audioInit() {
+  if (AU.ctx) { AU.ctx.resume(); return; }
+  const C = window.AudioContext || window.webkitAudioContext; if (!C) return;
+  const ctx = new C(); AU.ctx = ctx;
+  const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -12; comp.ratio.value = 6; comp.connect(ctx.destination);
+  AU.out = ctx.createGain(); AU.out.gain.value = 0.9; AU.out.connect(comp);
+  const buf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate); const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  AU.noise = buf;
+  const loop = (freq, q) => {
+    const s = ctx.createBufferSource(); s.buffer = buf; s.loop = true;
+    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q;
+    const g = ctx.createGain(); g.gain.value = 0; s.connect(f).connect(g).connect(AU.out); s.start();
+    return { g, f };
+  };
+  AU.water = loop(1700, 0.6);
+  AU.swish = loop(700, 1.6);
+}
+function env(g, t, a, peak, dec) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + dec); }
+function noiseHit(t, vol, type, freq, dec) {
+  const ctx = AU.ctx; const s = ctx.createBufferSource(); s.buffer = AU.noise; s.playbackRate.value = rand(0.8, 1.2);
+  const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq;
+  const g = ctx.createGain(); env(g, t, 0.003, vol, dec); s.connect(f).connect(g).connect(AU.out); s.start(t, rand(0, 1.5)); s.stop(t + dec + 0.05);
+}
+function tone(t, type, f0, f1, vol, dur, a = 0.005) {
+  const ctx = AU.ctx; const o = ctx.createOscillator(); o.type = type;
+  o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+  const g = ctx.createGain(); env(g, t, a, vol, dur); o.connect(g).connect(AU.out); o.start(t); o.stop(t + dur + 0.05);
+}
+const SFX = {
+  hit(power, crit) {
+    if (!AU.ctx) return; const t = AU.ctx.currentTime; const p = clamp(power, 0, 1);
+    tone(t, 'sine', 160 + p * 60, 38, 0.6 + p * 0.5, 0.18 + p * 0.25);
+    noiseHit(t, 0.35 + p * 0.5, 'lowpass', 900 + p * 2500, 0.08 + p * 0.12);
+    tone(t, 'square', rand(700, 900), 300, 0.05 + p * 0.06, 0.06);
+    if (crit) { tone(t + 0.02, 'sawtooth', 90, 30, 0.35, 0.5); noiseHit(t, 0.6, 'bandpass', 400, 0.4); }
+    // squeaky "pugyu" voice
+    const v = t + 0.05; tone(v, 'triangle', 900 + p * 400, 520, 0.12, 0.16); tone(v + 0.1, 'triangle', 1300, 700, 0.08, 0.12);
+  },
+  wall(p) {
+    if (!AU.ctx) return; const t = AU.ctx.currentTime;
+    tone(t, 'sine', 120 + p * 40, 45, 0.5 + p * 0.4, 0.2 + p * 0.2);
+    noiseHit(t, 0.3 + p * 0.5, 'lowpass', 1400 + p * 2000, 0.1 + p * 0.15);
+    tone(t, 'triangle', 420, 380, 0.08 + p * 0.08, 0.35); tone(t, 'triangle', 637, 600, 0.05 + p * 0.06, 0.3); // ぼよん/ガン の金属っぽい鳴り
+    const v = t + 0.06; tone(v, 'triangle', 1100 + p * 300, 600, 0.1, 0.14);
+  },
+  split() {
+    if (!AU.ctx) return; const t = AU.ctx.currentTime;
+    tone(t, 'sine', 300, 900, 0.22, 0.18); tone(t + 0.08, 'triangle', 600, 1500, 0.15, 0.2);
+    noiseHit(t, 0.2, 'highpass', 3000, 0.2);
+  },
+  spurt(n) { if (!AU.ctx) return; noiseHit(AU.ctx.currentTime + 0.03, Math.min(0.5, 0.12 + n * 0.008), 'highpass', 2500, 0.35); },
+  boing() { if (!AU.ctx) return; const t = AU.ctx.currentTime; const o = AU.ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(180, t); o.frequency.exponentialRampToValueAtTime(720, t + 0.35);
+    const lfo = AU.ctx.createOscillator(); lfo.frequency.value = 18; const lg = AU.ctx.createGain(); lg.gain.value = 40; lfo.connect(lg).connect(o.frequency);
+    const g = AU.ctx.createGain(); env(g, t, 0.01, 0.25, 0.4); o.connect(g).connect(AU.out); o.start(t); lfo.start(t); o.stop(t + 0.5); lfo.stop(t + 0.5); },
+  thud(v) { if (!AU.ctx) return; const t = AU.ctx.currentTime; tone(t, 'sine', 110, 40, clamp(v, 0.05, 0.6), 0.2); noiseHit(t, clamp(v * 0.5, 0.02, 0.3), 'lowpass', 500, 0.1); },
+  drop() { if (!AU.ctx) return; const t = AU.ctx.currentTime; tone(t, 'sine', rand(1200, 1800), rand(500, 700), 0.04, 0.06); },
+  tick(hi) { if (!AU.ctx) return; tone(AU.ctx.currentTime, 'square', hi ? 1320 : 880, hi ? 1320 : 880, 0.08, 0.07); },
+  whistle() { if (!AU.ctx) return; const t = AU.ctx.currentTime; tone(t, 'sine', 2300, 2300, 0.18, 0.18); tone(t + 0.22, 'sine', 2300, 2300, 0.18, 0.4); },
+  fanfare() { if (!AU.ctx) return; const t = AU.ctx.currentTime; [523, 659, 784, 1046].forEach((f, i) => tone(t + i * 0.1, 'triangle', f, f, 0.18, 0.3)); },
+};
+function setLoop(l, vol, freq) { if (!AU.ctx) return; const t = AU.ctx.currentTime; l.g.gain.setTargetAtTime(vol, t, 0.05); if (freq) l.f.frequency.setTargetAtTime(freq, t, 0.05); }
+const buzz = (ms) => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) { /* ignore */ } };
+
+// ======================================================================
+// Kabukun: GLB + shape-matching soft body (3x3x3 lattice deforms the skinned mesh in the vertex shader)
+// ======================================================================
+const BMIN = new THREE.Vector3(-0.95, -0.01, -0.48);
+const BSIZE = new THREE.Vector3(1.9, 1.43, 0.96);
+const C0 = BMIN.clone().addScaledVector(BSIZE, 0.5);
+const NP = 27;
+const makeSBU = () => ({
+  uDisp: { value: Array.from({ length: NP }, () => new THREE.Vector3()) },
+  uBMin: { value: BMIN }, uBSize: { value: BSIZE },
+});
+const DEFORM_GLSL = `
+uniform vec3 uDisp[27]; uniform vec3 uBMin; uniform vec3 uBSize;
+vec3 kabuD(vec3 p){
+  vec3 l = clamp((p - uBMin) / uBSize, 0.0, 1.0) * 2.0;
+  vec3 fl = min(floor(l), vec3(1.0)); vec3 f = l - fl;
+  int i = int(fl.x) + int(fl.y) * 3 + int(fl.z) * 9;
+  vec3 a = mix(mix(uDisp[i], uDisp[i+1], f.x), mix(uDisp[i+3], uDisp[i+4], f.x), f.y);
+  vec3 b = mix(mix(uDisp[i+9], uDisp[i+10], f.x), mix(uDisp[i+12], uDisp[i+13], f.x), f.y);
+  return mix(a, b, f.z);
+}`;
+function addDeform(mat, sbu) {
+  mat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, sbu);
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\n' + DEFORM_GLSL)
+      .replace('#include <skinning_vertex>', '#include <skinning_vertex>\ntransformed += kabuD(position);');
+  };
+  mat.customProgramCacheKey = () => 'kabuDeform';
+}
+
+// かぶくんは最大 MAX_KABU 匹。ロード時にプールを作っておき、ぶんれつで有効化する。
+// 物理・描画の各関数は「いまのかぶ」K を見るので、ループで K を差し替えて呼ぶ。
+const MAX_KABU = 10, SPLIT_FAT = 1.0;
+const Q = new Float32Array(NP * 3), KR = new Float32Array(NP);
+const KABUS = [];
+let READY = false;
+function makeKabu() {
+  const root = new THREE.Group(); scene.add(root);
+  const offset = new THREE.Group(); offset.position.copy(C0).multiplyScalar(-1); root.add(offset);
+  const blobM = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false }));
+  blobM.rotation.x = -Math.PI / 2; blobM.position.y = 0.012; scene.add(blobM);
+  return {
+    active: false, root, offset, blob: blobM, sbu: makeSBU(), stars: [],
+    mixer: null, actions: {}, eyes: [], mouth: [], bodyMats: [],
+    x: new Float32Array(NP * 3), v: new Float32Array(NP * 3), q: Q, kr: KR,
+    c: new THREE.Vector3(), vc: new THREE.Vector3(), quat: new THREE.Quaternion(), R: new Float32Array(9),
+    fat: 0, fatVis: 0, heading: 0, uprightK: 0.5, stun: 0, airborne: false, grounded: 0,
+    walkTarget: new THREE.Vector3(), walkTimer: 0, walkPhase: rand(0, 6), speed: 0,
+    face: 'normal', faceT: 0, blinkT: rand(1, 3), blink: 0, flash: 0, wet: 0,
+    maxY: 0, airTime: 0, out: false, respawnT: 0, hitCool: 0, dizzy: 0,
+    wallImp: 0, wallP: new THREE.Vector3(), wallN: new THREE.Vector3(), wallCool: 0, bumpCool: 0, wantSplit: false,
+  };
+}
+let K = null;
+const activeKabus = () => KABUS.filter((k) => k.active);
+// lattice rest offsets
+for (let k = 0, n = 0; k < 3; k++) for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++, n++) {
+  // index = i + j*3 + k*9 (same as shader)
+  const idx = i + j * 3 + k * 9;
+  Q[idx * 3] = BMIN.x + BSIZE.x * i / 2 - C0.x;
+  Q[idx * 3 + 1] = BMIN.y + BSIZE.y * j / 2 - C0.y;
+  Q[idx * 3 + 2] = BMIN.z + BSIZE.z * k / 2 - C0.z;
+  const ext = (i !== 1) + (j !== 1) + (k !== 1);
+  KR[idx] = ext === 3 ? 0.78 : ext === 2 ? 0.9 : 1.0; // rounded collision hull
+}
+
+const _m4 = new THREE.Matrix4(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _v = new THREE.Vector3(), _v2 = new THREE.Vector3();
+const YAXIS = new THREE.Vector3(0, 1, 0), ZAXIS = new THREE.Vector3(0, 0, 1);
+function quatToR(q, R) { // row-major
+  _m4.makeRotationFromQuaternion(q); const e = _m4.elements;
+  R[0] = e[0]; R[1] = e[4]; R[2] = e[8]; R[3] = e[1]; R[4] = e[5]; R[5] = e[9]; R[6] = e[2]; R[7] = e[6]; R[8] = e[10];
+}
+function extractRotation(a, q, iters) { // a: column-major 3x3 (Müller et al. 2016)
+  for (let it = 0; it < iters; it++) {
+    _m4.makeRotationFromQuaternion(q); const e = _m4.elements;
+    let ox = 0, oy = 0, oz = 0, d = 0;
+    for (let c = 0; c < 3; c++) {
+      const rx = e[c * 4], ry = e[c * 4 + 1], rz = e[c * 4 + 2];
+      const ax = a[c * 3], ay = a[c * 3 + 1], az = a[c * 3 + 2];
+      ox += ry * az - rz * ay; oy += rz * ax - rx * az; oz += rx * ay - ry * ax; d += rx * ax + ry * ay + rz * az;
+    }
+    const s = 1 / (Math.abs(d) + 1e-9); ox *= s; oy *= s; oz *= s;
+    const w = Math.hypot(ox, oy, oz); if (w < 1e-9) break;
+    _q2.setFromAxisAngle(_v.set(ox / w, oy / w, oz / w), w); q.premultiply(_q2).normalize();
+  }
+}
+const fatScale = (f) => [1 + 0.5 * f, 1 + 0.38 * f, 1 + 0.85 * f];
+
+function kabuReset(px, py, pz, yaw) {
+  K.quat.setFromAxisAngle(YAXIS, yaw); quatToR(K.quat, K.R);
+  const R = K.R, s = fatScale(K.fat);
+  for (let i = 0; i < NP; i++) {
+    const qx = K.q[i * 3] * s[0], qy = K.q[i * 3 + 1] * s[1], qz = K.q[i * 3 + 2] * s[2];
+    K.x[i * 3] = px + R[0] * qx + R[1] * qy + R[2] * qz;
+    K.x[i * 3 + 1] = py + 0.72 + R[3] * qx + R[4] * qy + R[5] * qz;
+    K.x[i * 3 + 2] = pz + R[6] * qx + R[7] * qy + R[8] * qz;
+    K.v[i * 3] = K.v[i * 3 + 1] = K.v[i * 3 + 2] = 0;
+  }
+  K.heading = yaw; K.out = false; K.stun = 0.4; K.uprightK = 0.5;
+}
+
+const GRAV = -18;
+const _A = new Float32Array(9), _Rt = new Float32Array(9);
+function kabuStep(h, t) {
+  const x = K.x, v = K.v, q = K.q;
+  // centroid
+  let cx = 0, cy = 0, cz = 0;
+  for (let i = 0; i < NP; i++) { cx += x[i * 3]; cy += x[i * 3 + 1]; cz += x[i * 3 + 2]; }
+  cx /= NP; cy /= NP; cz /= NP; K.c.set(cx, cy, cz);
+  // Apq
+  _A.fill(0);
+  for (let i = 0; i < NP; i++) {
+    const px = x[i * 3] - cx, py = x[i * 3 + 1] - cy, pz = x[i * 3 + 2] - cz;
+    for (let c = 0; c < 3; c++) { const qc = q[i * 3 + c]; _A[c * 3] += px * qc; _A[c * 3 + 1] += py * qc; _A[c * 3 + 2] += pz * qc; }
+  }
+  extractRotation(_A, K.quat, 4);
+  quatToR(K.quat, K.R);
+
+  // upright / heading target
+  _q.copy(K.quat);
+  if (K.uprightK > 0) {
+    _q2.setFromAxisAngle(YAXIS, K.heading);
+    if (K.speed > 0.05) { const roll = Math.sin(K.walkPhase) * 0.14 * Math.min(1, K.speed * 2); _q2.multiply(new THREE.Quaternion().setFromAxisAngle(ZAXIS, roll)); }
+    _q.slerp(_q2, K.uprightK);
+  }
+  quatToR(_q, _Rt);
+  const s = fatScale(K.fatVis);
+  const alpha = 0.13, Rt = _Rt;
+  let vcx = 0, vcy = 0, vcz = 0;
+  for (let i = 0; i < NP; i++) {
+    const qx = q[i * 3] * s[0], qy = q[i * 3 + 1] * s[1], qz = q[i * 3 + 2] * s[2];
+    const gx = cx + Rt[0] * qx + Rt[1] * qy + Rt[2] * qz;
+    const gy = cy + Rt[3] * qx + Rt[4] * qy + Rt[5] * qz;
+    const gz = cz + Rt[6] * qx + Rt[7] * qy + Rt[8] * qz;
+    v[i * 3] += alpha * (gx - x[i * 3]) / h;
+    v[i * 3 + 1] += alpha * (gy - x[i * 3 + 1]) / h + GRAV * h;
+    v[i * 3 + 2] += alpha * (gz - x[i * 3 + 2]) / h;
+    vcx += v[i * 3]; vcy += v[i * 3 + 1]; vcz += v[i * 3 + 2];
+  }
+  vcx /= NP; vcy /= NP; vcz /= NP;
+  // jelly damping relative to centroid motion + walk drive
+  const walking = !K.out && K.grounded > 0 && K.stun <= 0 && K.uprightK > 0.3;
+  let dvx = 0, dvz = 0;
+  if (walking) {
+    const dx = K.walkTarget.x - cx, dz = K.walkTarget.z - cz, dist = Math.hypot(dx, dz);
+    const sp = dist > 0.25 ? (0.95 / (1 + K.fatVis * 0.6)) : 0;
+    const tx = dist > 1e-3 ? dx / dist * sp : 0, tz = dist > 1e-3 ? dz / dist * sp : 0;
+    dvx = (tx - vcx) * 0.06; dvz = (tz - vcz) * 0.06;
+    if (dist > 0.25) {
+      const want = Math.atan2(dx, dz); let dh = want - K.heading;
+      dh = Math.atan2(Math.sin(dh), Math.cos(dh)); K.heading += clamp(dh, -3.5 * h, 3.5 * h);
+    }
+  }
+  for (let i = 0; i < NP; i++) {
+    v[i * 3] = vcx + (v[i * 3] - vcx) * 0.992 + dvx;
+    v[i * 3 + 1] = vcy + (v[i * 3 + 1] - vcy) * 0.992;
+    v[i * 3 + 2] = vcz + (v[i * 3 + 2] - vcz) * 0.992 + dvz;
+    x[i * 3] += v[i * 3] * h; x[i * 3 + 1] += v[i * 3 + 1] * h; x[i * 3 + 2] += v[i * 3 + 2] * h;
+  }
+  K.vc.set(vcx, vcy, vcz);
+  // wall: infinite cylinder, bouncy. each particle bounces on its own -> body squashes against it
+  const WL = WALL_R - 0.03;
+  for (let i = 0; i < NP; i++) {
+    const px = x[i * 3], pz = x[i * 3 + 2], r2 = px * px + pz * pz;
+    if (r2 <= WL * WL) continue;
+    const r = Math.sqrt(r2), nx = px / r, nz = pz / r;
+    x[i * 3] = nx * WL; x[i * 3 + 2] = nz * WL;
+    const vn = v[i * 3] * nx + v[i * 3 + 2] * nz;
+    if (vn > 0) {
+      if (vn > K.wallImp) { K.wallImp = vn; K.wallP.set(nx * WALL_R, x[i * 3 + 1], nz * WALL_R); K.wallN.set(nx, 0, nz); }
+      v[i * 3] -= (1 + WALL_E) * vn * nx; v[i * 3 + 2] -= (1 + WALL_E) * vn * nz;
+      v[i * 3] *= 0.9; v[i * 3 + 2] *= 0.9; v[i * 3 + 1] *= 0.94;
+    }
+  }
+  // ground (rounded hull), only over the island
+  let grounded = 0, impact = 0;
+  for (let i = 0; i < NP; i++) {
+    const px = x[i * 3], pz = x[i * 3 + 2];
+    if (px * px + pz * pz > ARENA_R * ARENA_R) continue;
+    const cpy = cy + (x[i * 3 + 1] - cy) * K.kr[i];
+    if (cpy < 0 && cpy > -0.8) {
+      x[i * 3 + 1] -= cpy / K.kr[i];
+      if (v[i * 3 + 1] < 0) { impact = Math.max(impact, -v[i * 3 + 1]); v[i * 3 + 1] *= -0.22; }
+      const fr = walking ? 0.97 : 0.86; v[i * 3] *= fr; v[i * 3 + 2] *= fr;
+      grounded++;
+    }
+  }
+  K.grounded = grounded;
+  return impact;
+}
+
+function kabuApplyImpulse(dvx, dvy, dvz, lx, ly, lz, sigma, local) {
+  // distribute a velocity change: local share falls off around world point (lx,ly,lz)
+  const x = K.x, v = K.v; let wsum = 0; const w = new Float32Array(NP);
+  for (let i = 0; i < NP; i++) {
+    const dx = x[i * 3] - lx, dy = x[i * 3 + 1] - ly, dz = x[i * 3 + 2] - lz;
+    w[i] = Math.exp(-(dx * dx + dy * dy + dz * dz) / (sigma * sigma)); wsum += w[i];
+  }
+  for (let i = 0; i < NP; i++) {
+    const f = (1 - local) + local * NP * w[i] / (wsum + 1e-9);
+    v[i * 3] += dvx * f; v[i * 3 + 1] += dvy * f; v[i * 3 + 2] += dvz * f;
+  }
+}
+
+// body as an ellipsoid in the lattice frame: returns {pen, nx,ny,nz (world), d} or null
+const ELL_C = new THREE.Vector3(0, 0.66, 0.0).sub(C0); // relative to C0
+const ELL_R = new THREE.Vector3(0.9, 0.56, 0.5);
+function bodyHit(px, py, pz, rad, out) {
+  const R = K.R, s = fatScale(K.fatVis);
+  const dx = px - K.c.x, dy = py - K.c.y, dz = pz - K.c.z;
+  // local = R^T d
+  const lx = R[0] * dx + R[3] * dy + R[6] * dz, ly = R[1] * dx + R[4] * dy + R[7] * dz, lz = R[2] * dx + R[5] * dy + R[8] * dz;
+  const ex = ELL_R.x * s[0] + rad, ey = ELL_R.y * s[1] + rad, ez = ELL_R.z * s[2] + rad;
+  const ux = (lx - ELL_C.x * s[0]) / ex, uy = (ly - ELL_C.y * s[1]) / ey, uz = (lz - ELL_C.z * s[2]) / ez;
+  const d = Math.hypot(ux, uy, uz); if (d >= 1) return null;
+  let nx = ux / ex, ny = uy / ey, nz = uz / ez; const nl = Math.hypot(nx, ny, nz) || 1; nx /= nl; ny /= nl; nz /= nl;
+  out.nx = R[0] * nx + R[1] * ny + R[2] * nz; out.ny = R[3] * nx + R[4] * ny + R[5] * nz; out.nz = R[6] * nx + R[7] * ny + R[8] * nz;
+  out.pen = (1 - d) * Math.min(ex, ey, ez); out.d = d; out.ly = uy;
+  return out;
+}
+
+// GLB load
+function stylize(root) {
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    o.frustumCulled = false;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    const next = mats.map((m) => {
+      const name = m.name || '';
+      let nm;
+      if (name === 'Kabu_Body' || name === 'Kabu_Leaf') {
+        nm = new THREE.MeshToonMaterial({ name, color: name === 'Kabu_Body' ? 0xfffdfc : 0xffffff, map: m.map || null, gradientMap: toonGrad, side: name === 'Kabu_Leaf' ? THREE.DoubleSide : THREE.FrontSide, emissive: 0x000000 });
+        K.bodyMats.push(nm);
+      } else {
+        const decal = name !== 'Kabu_Outline';
+        nm = new THREE.MeshBasicMaterial({ name, color: m.emissive ? m.emissive.clone() : new THREE.Color('#5f5e5f'), polygonOffset: decal, polygonOffsetFactor: decal ? -2 : 0, polygonOffsetUnits: decal ? -2 : 0 });
+      }
+      addDeform(nm, K.sbu); return nm;
+    });
+    o.material = Array.isArray(o.material) ? next : next[0];
+    let p = o, tag = null;
+    while (p) { if (p.name.startsWith('Kabu_Eyes')) tag = 'eyes'; if (p.name.startsWith('Kabu_Mouth')) tag = 'mouth'; p = p.parent; }
+    if (tag && o.morphTargetDictionary) K[tag].push(o);
+  });
+}
+function setMorphs(list, vals) {
+  for (const m of list) for (const [k, i] of Object.entries(m.morphTargetDictionary)) m.morphTargetInfluences[i] = vals[k] || 0;
+}
+function toGLB(json) {
+  // 埋め込み base64 を自前でデコードして GLB にする (公開ページの CSP は data: の fetch を許さない)
+  const uri = json.buffers[0].uri; delete json.buffers[0].uri;
+  const b64 = uri.slice(uri.indexOf(',') + 1), bin = atob(b64), n = bin.length;
+  const binPad = (n + 3) & ~3;
+  const jsonBytes = new TextEncoder().encode(JSON.stringify(json));
+  const jsonPad = (jsonBytes.length + 3) & ~3;
+  const total = 12 + 8 + jsonPad + 8 + binPad;
+  const buf = new ArrayBuffer(total), dv = new DataView(buf), u8 = new Uint8Array(buf);
+  dv.setUint32(0, 0x46546C67, true); dv.setUint32(4, 2, true); dv.setUint32(8, total, true);
+  dv.setUint32(12, jsonPad, true); dv.setUint32(16, 0x4E4F534A, true);
+  u8.set(jsonBytes, 20); for (let i = 20 + jsonBytes.length; i < 20 + jsonPad; i++) u8[i] = 0x20;
+  const o = 20 + jsonPad; dv.setUint32(o, binPad, true); dv.setUint32(o + 4, 0x004E4942, true);
+  for (let i = 0; i < n; i++) u8[o + 8 + i] = bin.charCodeAt(i);
+  return buf;
+}
+fetch('kabukun_lite.gltf.json').then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }).then((json) => {
+  const loader = new GLTFLoader();
+  // 画像も blob: URL を経由せず直接デコードする (CSP 対策)
+  loader.register((parser) => {
+    parser.loadImageSource = function (idx) {
+      if (this.sourceCache[idx]) return this.sourceCache[idx];
+      const img = this.json.images[idx];
+      const p = this.getDependency('bufferView', img.bufferView)
+        .then((bv) => createImageBitmap(new Blob([bv], { type: img.mimeType }), { imageOrientation: 'none', premultiplyAlpha: 'none', colorSpaceConversion: 'none' }))
+        .then((bmp) => { const t = new THREE.Texture(bmp); t.needsUpdate = true; return t; })
+        .catch((e) => { console.warn('texture skipped', e); return null; });
+      this.sourceCache[idx] = p; return p;
+    };
+    return { name: 'csp_safe_images' };
+  });
+  return loader.parseAsync(toGLB(json), '');
+}).then((g) => {
+  const clips = g.animations.filter((c) => ['walk', 'idle', 'surprised', 'happy'].includes(c.name));
+  for (const clip of clips) clip.tracks = clip.tracks.filter((tr) => !tr.name.endsWith('.morphTargetInfluences'));
+  for (let n = 0; n < MAX_KABU; n++) {
+    K = makeKabu(); KABUS.push(K);
+    const model = n === MAX_KABU - 1 ? g.scene : SkeletonUtils.clone(g.scene);
+    stylize(model); K.offset.add(model);
+    K.mixer = new THREE.AnimationMixer(model);
+    for (const clip of clips) { const a = K.mixer.clipAction(clip); a.play(); a.setEffectiveWeight(0); K.actions[clip.name] = a; }
+    K.animW = { walk: 0, idle: 1, surprised: 0, happy: 0 };
+    K.stars = [0, 1, 2].map(() => { const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: starTex, transparent: true, depthWrite: false })); sp.scale.setScalar(0.32); sp.visible = false; scene.add(sp); return sp; });
+    K.root.visible = false; K.blob.visible = false;
+  }
+  K = KABUS[0]; K.active = true; K.root.visible = true;
+  kabuReset(0, 0, 0, 0.5);
+  READY = true;
+  $('#loading').hidden = true; $('#startBtn').hidden = false;
+}).catch((e) => { $('#loading').textContent = '読み込みに失敗しました（' + (e && e.message || e) + '）。再読み込みしてください'; console.error(e); });
+
+// ======================================================================
+// Flail (verlet chain + spiked wooden head)
+// ======================================================================
+const FLAIL_Y = 0.85; // 振り回したとき鉄球がかぶくんの胴の高さを通るように
+const FL = { n: 7, seg: 0.2, headR: 0.3, mass: 2.6, p: [], pp: [], anchor: new THREE.Vector3(1.6, 2.6, 1.8), target: new THREE.Vector3(1.6, 2.6, 1.8), headV: new THREE.Vector3() };
+for (let i = 0; i < FL.n; i++) { FL.p.push(new THREE.Vector3(1.6, 2.6 - i * FL.seg, 1.8)); FL.pp.push(FL.p[i].clone()); }
+const flailG = new THREE.Group(); scene.add(flailG);
+const headMesh = new THREE.Group();
+{
+  const wood = toon(0xb8763f), metal = toon(0xd5dbe6);
+  headMesh.add(new THREE.Mesh(new THREE.SphereGeometry(FL.headR, 20, 14), wood));
+  const spikeG = new THREE.ConeGeometry(0.075, 0.2, 6); spikeG.translate(0, FL.headR + 0.07, 0);
+  const dirs = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1],[1,1,1],[-1,1,1],[1,-1,1],[-1,-1,1],[1,1,-1],[-1,1,-1],[1,-1,-1],[-1,-1,-1]];
+  for (const d of dirs) { const s = new THREE.Mesh(spikeG, metal); s.quaternion.setFromUnitVectors(YAXIS, _v.set(...d).normalize()); headMesh.add(s); }
+  const band = new THREE.Mesh(new THREE.TorusGeometry(FL.headR * 1.01, 0.03, 6, 24), toon(0x6b4226)); band.rotation.x = Math.PI / 2; headMesh.add(band);
+}
+flailG.add(headMesh);
+const linkGeo = new THREE.SphereGeometry(0.045, 8, 6);
+const links = new THREE.InstancedMesh(linkGeo, toon(0x5a6274), 24); flailG.add(links);
+const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.9, 10), toon(0xa0623a)); flailG.add(handle);
+const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.3, 10), toon(0xff5a5f)); flailG.add(grip);
+
+function flailStep(h) {
+  // anchor chases the finger (fast, but not teleporting)
+  _v.subVectors(FL.target, FL.anchor); const d = _v.length(), maxD = 55 * h;
+  if (d > maxD) _v.multiplyScalar(maxD / d); FL.anchor.add(_v);
+  FL.p[0].copy(FL.anchor); FL.pp[0].copy(FL.anchor);
+  for (let i = 1; i < FL.n; i++) {
+    const p = FL.p[i], pp = FL.pp[i];
+    const vx = (p.x - pp.x) * 0.996, vy = (p.y - pp.y) * 0.996, vz = (p.z - pp.z) * 0.996;
+    pp.copy(p); p.x += vx; p.y += vy + GRAV * h * h; p.z += vz;
+  }
+  for (let it = 0; it < 12; it++) {
+    for (let i = 1; i < FL.n; i++) {
+      const a = FL.p[i - 1], b = FL.p[i]; _v.subVectors(b, a); const L = _v.length() || 1e-6;
+      const diff = (L - FL.seg) / L;
+      if (i === 1) b.addScaledVector(_v, -diff); else { a.addScaledVector(_v, diff * 0.5); b.addScaledVector(_v, -diff * 0.5); }
+    }
+  }
+  const head = FL.p[FL.n - 1], hp = FL.pp[FL.n - 1];
+  if (head.y < FL.headR && head.x * head.x + head.z * head.z < ARENA_R * ARENA_R) { head.y = FL.headR; hp.y = head.y + (head.y - hp.y) * 0.3; hp.x = lerp(hp.x, head.x, 0.2); hp.z = lerp(hp.z, head.z, 0.2); }
+  { const r = Math.hypot(head.x, head.z), lim = WALL_R - FL.headR; if (r > lim) { head.x *= lim / r; head.z *= lim / r; hp.x = lerp(hp.x, head.x, 0.5); hp.z = lerp(hp.z, head.z, 0.5); } }
+  FL.headV.subVectors(head, hp).divideScalar(h);
+  const sp = FL.headV.length(); if (sp > 34) { FL.headV.multiplyScalar(34 / sp); hp.copy(head).addScaledVector(FL.headV, -h); }
+}
+function flailRender() {
+  const head = FL.p[FL.n - 1];
+  headMesh.position.copy(head);
+  headMesh.rotation.x += FL.headV.z * 0.01; headMesh.rotation.z -= FL.headV.x * 0.01;
+  let k = 0;
+  for (let i = 0; i < FL.n - 1 && k < 24; i++) {
+    for (let s = 0; s < 3; s++) { _v.lerpVectors(FL.p[i], FL.p[i + 1], s / 3); _m4.makeTranslation(_v.x, _v.y, _v.z); links.setMatrixAt(k++, _m4); }
+  }
+  links.count = k; links.instanceMatrix.needsUpdate = true;
+  // handle points from anchor up/back toward the camera
+  _v.subVectors(camera.position, FL.anchor).normalize(); _v.y += 0.6; _v.normalize();
+  handle.position.copy(FL.anchor).addScaledVector(_v, 0.45); handle.quaternion.setFromUnitVectors(YAXIS, _v);
+  grip.position.copy(FL.anchor).addScaledVector(_v, 0.85); grip.quaternion.copy(handle.quaternion);
+}
+
+// ======================================================================
+// Water droplets (hose stream, spurts, splashes)
+// ======================================================================
+const DMAX = 900;
+const D = { p: new Float32Array(DMAX * 3), v: new Float32Array(DMAX * 3), life: new Float32Array(DMAX), size: new Float32Array(DMAX), kind: new Uint8Array(DMAX), n: 0, alive: new Uint8Array(DMAX), cursor: 0 };
+const dropMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshBasicMaterial({ color: 0x4cc3ff, transparent: true, opacity: 0.85, depthWrite: false }), DMAX);
+dropMesh.frustumCulled = false; scene.add(dropMesh);
+const dropHi = new THREE.Color(0xd6f3ff), dropLo = new THREE.Color(0x3bb4ff);
+function spawnDrop(px, py, pz, vx, vy, vz, size, kind, life = 2.5) {
+  let i = D.cursor;
+  for (let tries = 0; tries < DMAX && D.alive[i]; tries++) i = (i + 1) % DMAX;
+  D.cursor = (i + 1) % DMAX;
+  D.alive[i] = 1; D.p[i * 3] = px; D.p[i * 3 + 1] = py; D.p[i * 3 + 2] = pz;
+  D.v[i * 3] = vx; D.v[i * 3 + 1] = vy; D.v[i * 3 + 2] = vz; D.size[i] = size; D.kind[i] = kind; D.life[i] = life;
+  dropMesh.setColorAt(i, Math.random() < 0.3 ? dropHi : dropLo);
+}
+const _hit = {};
+let dropHitsThisFrame = 0;
+function dropsUpdate(dt) {
+  const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+  for (let i = 0; i < DMAX; i++) {
+    if (!D.alive[i]) { dropMesh.setMatrixAt(i, zero); continue; }
+    D.life[i] -= dt;
+    let px = D.p[i * 3], py = D.p[i * 3 + 1], pz = D.p[i * 3 + 2];
+    D.v[i * 3 + 1] += GRAV * 0.8 * dt;
+    px += D.v[i * 3] * dt; py += D.v[i * 3 + 1] * dt; pz += D.v[i * 3 + 2] * dt;
+    D.p[i * 3] = px; D.p[i * 3 + 1] = py; D.p[i * 3 + 2] = pz;
+    if (D.kind[i] !== 0) { const r2 = px * px + pz * pz; if (r2 > WALL_R * WALL_R && r2 < (WALL_R + 0.6) ** 2 && py < 6) { const r = Math.sqrt(r2), nx = px / r, nz = pz / r, vn = D.v[i * 3] * nx + D.v[i * 3 + 2] * nz; if (vn > 0) { D.v[i * 3] -= 1.5 * vn * nx; D.v[i * 3 + 2] -= 1.5 * vn * nz; } D.p[i * 3] = px = nx * WALL_R; D.p[i * 3 + 2] = pz = nz * WALL_R; } }
+    let dead = D.life[i] <= 0 || py < -12;
+    const kind = D.kind[i];
+    if (!dead && kind === 0 && READY) {
+      for (const k of KABUS) {
+        if (!k.active || k.out) continue;
+        if (Math.abs(px - k.c.x) > 1.8 || Math.abs(pz - k.c.z) > 1.8) continue;
+        K = k; if (!bodyHit(px, py, pz, 0.05, _hit)) continue;
+        // hose water soaks in: fatten, nudge
+        dead = true; dropHitsThisFrame++;
+        K.fat = Math.min(1.5, K.fat + 0.006); K.wet = 1;
+        if (K.fat >= SPLIT_FAT) K.wantSplit = true;
+        kabuApplyImpulse(D.v[i * 3] * 0.0016, D.v[i * 3 + 1] * 0.0012, D.v[i * 3 + 2] * 0.0016, px, py, pz, 0.5, 0.5);
+        if (Math.random() < 0.25) spawnDrop(px, py, pz, _hit.nx * 2 + rand(-1, 1), rand(1, 3), _hit.nz * 2 + rand(-1, 1), 0.035, 2, 0.4);
+        break;
+      }
+    }
+    if (!dead && py < 0.02 && px * px + pz * pz < ARENA_R * ARENA_R && D.v[i * 3 + 1] < 0) {
+      dead = true;
+      if (kind !== 2 && Math.random() < 0.5) for (let s = 0; s < 2; s++) spawnDrop(px, 0.03, pz, rand(-1.4, 1.4), rand(1, 2.4), rand(-1.4, 1.4), 0.03, 2, 0.35);
+      if (kind === 0) groundWetAt(px, pz);
+    }
+    if (dead) { D.alive[i] = 0; dropMesh.setMatrixAt(i, zero); continue; }
+    const vx = D.v[i * 3], vy = D.v[i * 3 + 1], vz = D.v[i * 3 + 2], sp = Math.hypot(vx, vy, vz);
+    const s = D.size[i]; _v.set(vx, vy, vz).divideScalar(sp || 1);
+    _q.setFromUnitVectors(ZAXIS, _v);
+    _m4.compose(_v2.set(px, py, pz), _q, _v.set(s, s, s * (1 + sp * 0.035)));
+    dropMesh.setMatrixAt(i, _m4);
+  }
+  dropMesh.instanceMatrix.needsUpdate = true; if (dropMesh.instanceColor) dropMesh.instanceColor.needsUpdate = true;
+}
+let lastWetX = 0, lastWetZ = 0;
+function groundWetAt(x, z) { lastWetX = x; lastWetZ = z; }
+
+// hose nozzle
+const nozzle = new THREE.Group();
+{
+  const brass = toon(0xffc23a), rubber = toon(0x2fa84f);
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.16, 0.6, 12), brass); body.rotation.x = Math.PI / 2; nozzle.add(body);
+  const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.1, 0.2, 12), brass); tip.rotation.x = Math.PI / 2; tip.position.z = 0.38; nozzle.add(tip);
+  const hose = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.09, 8, 20, Math.PI), rubber); hose.position.set(0, -0.5, -0.3); hose.rotation.y = Math.PI / 2; nozzle.add(hose);
+}
+scene.add(nozzle);
+const HOSE = { active: false, target: new THREE.Vector3(0, 0.5, 0), acc: 0 };
+
+// ======================================================================
+// Effects (sprites)
+// ======================================================================
+const burstTex = canvasTex(256, 256, (g, w, h) => {
+  g.translate(w / 2, h / 2); g.beginPath();
+  const n = 14; for (let i = 0; i < n * 2; i++) { const r = i % 2 ? 52 : rand(100, 124); const a = (i / (n * 2)) * Math.PI * 2; g.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
+  g.closePath(); g.fillStyle = '#ffd23f'; g.fill(); g.lineWidth = 8; g.strokeStyle = '#1d2546'; g.stroke();
+  g.beginPath(); g.arc(0, 0, 44, 0, Math.PI * 2); g.fillStyle = '#fff'; g.fill();
+});
+const starTex = canvasTex(128, 128, (g, w, h) => {
+  g.translate(w / 2, h / 2); g.beginPath();
+  for (let i = 0; i < 10; i++) { const r = i % 2 ? 22 : 54; const a = (i / 10) * Math.PI * 2 - Math.PI / 2; g.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
+  g.closePath(); g.fillStyle = '#ffe14d'; g.fill(); g.lineWidth = 7; g.strokeStyle = '#1d2546'; g.stroke();
+});
+const ringTex = canvasTex(256, 256, (g, w, h) => { g.beginPath(); g.arc(w / 2, h / 2, 110, 0, Math.PI * 2); g.lineWidth = 14; g.strokeStyle = '#fff'; g.stroke(); });
+const FX = [];
+function fx(tex, pos, opt) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: !opt.top, depthWrite: false }));
+  sp.position.copy(pos); sp.renderOrder = opt.top ? 10 : 1; scene.add(sp);
+  FX.push({ sp, life: opt.life, max: opt.life, s0: opt.s0, s1: opt.s1, v: opt.v ? opt.v.clone() : null, spin: opt.spin || 0, g: opt.g || 0, frozen: !!opt.unfreeze });
+  sp.material.rotation = rand(0, Math.PI * 2);
+}
+function fxUpdate(dt, frozen) {
+  for (let i = FX.length - 1; i >= 0; i--) {
+    const f = FX[i]; if (frozen && !f.frozen) continue;
+    f.life -= dt; const t = 1 - f.life / f.max;
+    if (f.life <= 0) { scene.remove(f.sp); f.sp.material.dispose(); FX.splice(i, 1); continue; }
+    const s = lerp(f.s0, f.s1, 1 - Math.pow(1 - t, 3)); f.sp.scale.set(s, s, s);
+    f.sp.material.opacity = t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4; f.sp.material.rotation += f.spin * dt;
+    if (f.v) { f.v.y += f.g * dt; f.sp.position.addScaledVector(f.v, dt); }
+  }
+}
+
+// DOM pops
+const popsEl = $('#pops');
+function worldToScreen(p) { _v.copy(p).project(camera); return { x: (_v.x * 0.5 + 0.5) * innerWidth, y: (-_v.y * 0.5 + 0.5) * innerHeight }; }
+function pop(world, word, pts, cls = '') {
+  const s = worldToScreen(world);
+  const el = document.createElement('div'); el.className = 'pop outline ' + cls;
+  el.style.left = clamp(s.x, 90, innerWidth - 90) + 'px'; el.style.top = clamp(s.y, 120, innerHeight - 160) + 'px';
+  el.innerHTML = `<span class="w">${word}</span>` + (pts ? `<span class="p">+${pts.toLocaleString()}</span>` : '');
+  while (popsEl.children.length >= 5) popsEl.firstChild.remove();
+  popsEl.appendChild(el); setTimeout(() => el.remove(), 1000);
+}
+const bannerEl = $('#banner');
+function banner(text) { bannerEl.textContent = text; bannerEl.classList.remove('show'); void bannerEl.offsetWidth; bannerEl.classList.add('show'); }
+const flashEl = $('#flash');
+function screenFlash(a) { flashEl.style.transition = 'none'; flashEl.style.opacity = a; requestAnimationFrame(() => { flashEl.style.transition = 'opacity .25s'; flashEl.style.opacity = 0; }); }
+
+// ======================================================================
+// Game state
+// ======================================================================
+const G = {
+  mode: 'title', tool: 'hose', time: 30, score: 0, shown: 0, hits: 0, combo: 0, comboT: 0, maxCombo: 0, maxFly: 0,
+  hitStop: 0, trauma: 0, countdown: 0, lastTick: 0, pointer: null,
+};
+const camTarget = new THREE.Vector3(0, 0.6, 0);
+let camDist = 14;
+const ui = { score: $('#score'), time: $('#time'), timeChip: $('#timeChip'), combo: $('#combo'), mult: $('#mult'), fatBar: $('#fatBar'), hint: $('#hint') };
+const mult = () => 1 + K.fat * 1.4; // K = いま処理中のかぶ
+
+function addScore(n) { G.score += n; ui.score.classList.remove('bump'); void ui.score.offsetWidth; ui.score.classList.add('bump'); }
+
+function spurtWater(dmg) {
+  const nSp = Math.floor(Math.min(80, (5 + dmg * 2.2) * (0.25 + K.fat * 1.1)));
+  const top = _v2.set(0, 0.62 * fatScale(K.fatVis)[1], 0).applyQuaternion(K.quat).add(K.c);
+  for (let i = 0; i < nSp; i++) {
+    const a = rand(0, Math.PI * 2), r = rand(0, 1);
+    _v.set(Math.cos(a) * r * 0.8, rand(0.8, 1.6), Math.sin(a) * r * 0.8).applyQuaternion(K.quat).normalize().multiplyScalar(rand(3, 8));
+    spawnDrop(top.x + rand(-0.2, 0.2), top.y, top.z + rand(-0.2, 0.2), _v.x + K.vc.x * 0.4, _v.y + 2, _v.z + K.vc.z * 0.4, rand(0.04, 0.09), 1, 2.5);
+  }
+  if (nSp > 8) { SFX.spurt(nSp); if (G.mode === 'play' && K.fat > 0.25) { _v.set(K.c.x, K.c.y + 1.4, K.c.z); setTimeout(() => pop(_v.clone(), 'ぶしゃー', 0, 'water'), 120); } }
+}
+
+// 水で満タンになったかぶがぶんれつ
+function splitKabu(src) {
+  src.wantSplit = false;
+  const nk = KABUS.find((k) => !k.active);
+  if (!nk) { src.fat = Math.min(src.fat, 1.2); return; } // 満員
+  K = src;
+  const yaw = rand(0, Math.PI * 2), dx = Math.cos(yaw), dz = Math.sin(yaw);
+  src.fat = 0.4; src.fatVis = 0.6;
+  // 新しいかぶを同じ場所から出して、左右にはじく
+  K = nk; nk.active = true; nk.root.visible = true;
+  nk.fat = 0.4; nk.fatVis = 0.6; nk.dizzy = 0; nk.hitCool = 0.3; nk.wallCool = 0.6; nk.bumpCool = 0.6; src.wallCool = 0.6; src.bumpCool = 0.6;
+  kabuReset(clamp(src.c.x + dx * 0.5, -2.8, 2.8), Math.max(0, src.c.y - 0.72) + 0.25, clamp(src.c.z + dz * 0.5, -2.8, 2.8), yaw + Math.PI / 2);
+  for (let i = 0; i < NP; i++) { nk.v[i * 3] = dx * 1.8; nk.v[i * 3 + 1] = 4.5; nk.v[i * 3 + 2] = dz * 1.8; }
+  for (let i = 0; i < NP; i++) { src.v[i * 3] -= dx * 1.8; src.v[i * 3 + 1] += 4.5; src.v[i * 3 + 2] -= dz * 1.8; }
+  nk.stun = 0.5; src.stun = Math.max(src.stun, 0.5); nk.face = src.face = 'happy'; nk.faceT = src.faceT = 0.8;
+  nk.dropIn = true; src.dropIn = true; // ぶんれつジャンプはふっとびボーナス対象外
+  const n = activeKabus().length;
+  if (G.mode === 'play') {
+    const pts = 150 * n; addScore(pts);
+    _v.copy(src.c); _v.y += 1.2; pop(_v, `ぶんれつ! ${n}匹`, pts, n >= MAX_KABU ? 'big' : 'water');
+    if (n === 2 || n === 5 || n === MAX_KABU) banner(n === MAX_KABU ? 'かぶ満員!!' : `かぶ ${n}匹!`);
+  }
+  _v.copy(src.c);
+  fx(ringTex, _v, { life: 0.4, s0: 0.3, s1: 2.6, top: true });
+  for (let i = 0; i < 5; i++) fx(starTex, _v, { life: rand(0.5, 0.8), s0: rand(0.2, 0.32), s1: 0.1, v: new THREE.Vector3(rand(-4, 4), rand(3, 7), rand(-4, 4)), g: -14, spin: rand(-8, 8) });
+  for (let i = 0; i < 24; i++) spawnDrop(src.c.x, src.c.y + 0.5, src.c.z, rand(-4, 4), rand(2, 7), rand(-4, 4), rand(0.04, 0.08), 1, 2);
+  SFX.split(); buzz(25);
+}
+
+// かぶ同士の衝突 (球近似)。速くぶつかれば得点とエフェクト
+function kabuCollide() {
+  const list = activeKabus();
+  for (let a = 0; a < list.length; a++) for (let b = a + 1; b < list.length; b++) {
+    const A = list[a], B = list[b]; if (A.out || B.out) continue;
+    const dx = B.c.x - A.c.x, dy = B.c.y - A.c.y, dz = B.c.z - A.c.z;
+    const ra = 0.62 * (1 + 0.55 * A.fatVis), rb = 0.62 * (1 + 0.55 * B.fatVis);
+    const d2 = dx * dx + dy * dy + dz * dz, rr = ra + rb; if (d2 >= rr * rr) continue;
+    const d = Math.sqrt(d2) || 1e-4, nx = dx / d, ny = dy / d, nz = dz / d, pen = rr - d;
+    for (let i = 0; i < NP; i++) {
+      A.x[i * 3] -= nx * pen * 0.5; A.x[i * 3 + 1] -= ny * pen * 0.5; A.x[i * 3 + 2] -= nz * pen * 0.5;
+      B.x[i * 3] += nx * pen * 0.5; B.x[i * 3 + 1] += ny * pen * 0.5; B.x[i * 3 + 2] += nz * pen * 0.5;
+    }
+    const vn = (B.vc.x - A.vc.x) * nx + (B.vc.y - A.vc.y) * ny + (B.vc.z - A.vc.z) * nz;
+    if (vn >= 0) continue;
+    const j = -(1 + 0.6) * vn * 0.5;
+    const cx = A.c.x + nx * ra, cy = A.c.y + ny * ra, cz = A.c.z + nz * ra;
+    K = A; kabuApplyImpulse(-nx * j, -ny * j + (j > 3 ? j * 0.25 : 0), -nz * j, cx, cy, cz, 0.55, 0.5);
+    K = B; kabuApplyImpulse(nx * j, ny * j + (j > 3 ? j * 0.25 : 0), nz * j, cx, cy, cz, 0.55, 0.5);
+    A.vc.x -= nx * j; A.vc.z -= nz * j; B.vc.x += nx * j; B.vc.z += nz * j;
+    if (-vn > 4.5 && A.bumpCool <= 0 && B.bumpCool <= 0) onKabuBump(A, B, -vn, cx, cy, cz);
+  }
+}
+function onKabuBump(A, B, spd, cx, cy, cz) {
+  A.bumpCool = B.bumpCool = 0.2;
+  const power = clamp(spd / 14, 0, 1);
+  for (const k of [A, B]) { k.stun = Math.max(k.stun, 0.4 + power * 0.7); k.uprightK = 0; k.flash = Math.max(k.flash, 0.5 + power * 0.5); k.face = 'hurt'; k.faceT = 0.5; k.dizzy = Math.min(1, k.dizzy + 0.1); }
+  if (G.mode === 'play') {
+    G.combo = G.comboT > 0 ? G.combo + 1 : 1; G.comboT = 1.6; G.maxCombo = Math.max(G.maxCombo, G.combo); G.hits++;
+    const comboM = 1 + Math.min(2, (G.combo - 1) * 0.15);
+    K = A.fat > B.fat ? A : B;
+    const pts = Math.round(spd * 7 * mult() * comboM);
+    addScore(pts);
+    const word = spd < 8 ? 'ゴチン' : spd < 12 ? 'かぶ玉突き!' : 'かぶストライク!!';
+    _v.set(cx, cy + 0.7, cz); pop(_v, word, pts, spd >= 12 ? 'big' : '');
+  }
+  K = B; spurtWater(spd * 0.5);
+  G.hitStop = Math.max(G.hitStop, clamp(0.02 + spd * 0.005, 0.03, 0.1));
+  G.trauma = Math.min(1, G.trauma + 0.15 + power * 0.4);
+  _v.set(cx, cy, cz);
+  fx(burstTex, _v, { life: 0.22 + power * 0.1, s0: 0.3, s1: 1 + power * 1.3, top: true, unfreeze: true });
+  for (let i = 0; i < 2 + Math.floor(power * 4); i++) fx(starTex, _v, { life: rand(0.5, 0.8), s0: rand(0.2, 0.34), s1: 0.1, v: new THREE.Vector3(rand(-4, 4), rand(2, 6), rand(-4, 4)), g: -14, spin: rand(-8, 8) });
+  SFX.hit(power * 0.6, false); buzz(Math.round(10 + power * 30));
+}
+
+// かぶくんが壁に激突した
+function onWallHit(spd) {
+  K.wallCool = 0.16;
+  const power = clamp(spd / 16, 0, 1);
+  // たまに壁がやたら跳ね返す (物理なので)
+  const crazy = spd > 7 && Math.random() < 0.08;
+  if (crazy) kabuApplyImpulse(-K.wallN.x * spd * 0.9, rand(3, 7), -K.wallN.z * spd * 0.9, K.wallP.x, K.wallP.y, K.wallP.z, 0.6, 0.3);
+  K.stun = Math.max(K.stun, 0.5 + power * 0.9); K.uprightK = 0; K.flash = Math.max(K.flash, 0.6 + power * 0.4);
+  K.face = 'hurt'; K.faceT = 0.6; K.dizzy = Math.min(1, K.dizzy + 0.12 + power * 0.1);
+  if (G.mode === 'play') {
+    G.combo = G.comboT > 0 ? G.combo + 1 : 1; G.comboT = 1.6; G.maxCombo = Math.max(G.maxCombo, G.combo); G.hits++;
+    const comboM = 1 + Math.min(2, (G.combo - 1) * 0.15);
+    const pts = Math.round(spd * 8 * mult() * comboM * (crazy ? 2 : 1));
+    addScore(pts);
+    const word = crazy ? 'ビヨォォン!!' : spd < 7 ? 'ゴンッ' : spd < 11 ? '壁ドン!' : spd < 16 ? 'ドガシャーン!!' : 'バゴォォン!!!';
+    _v.copy(K.wallP).addScaledVector(K.wallN, -0.6); _v.y += 0.6;
+    pop(_v, word, pts, crazy || spd >= 16 ? 'big' : '');
+    if (crazy) banner('反射!!');
+  }
+  spurtWater(spd * 0.7);
+  K.fat = Math.max(0, K.fat - spd * 0.006 * (1 + K.fat));
+  G.hitStop = Math.max(G.hitStop, clamp(0.03 + spd * 0.006, 0.04, 0.15));
+  G.trauma = Math.min(1, G.trauma + 0.2 + power * 0.55);
+  wallFx.flash = Math.max(wallFx.flash, 0.4 + power * 0.6);
+  _v.copy(K.wallP).addScaledVector(K.wallN, -0.1);
+  fx(burstTex, _v, { life: 0.25 + power * 0.1, s0: 0.3, s1: 1.1 + power * 1.6, top: true, unfreeze: true });
+  fx(ringTex, _v, { life: 0.35, s0: 0.3, s1: 2 + power * 2.2, top: true, unfreeze: true });
+  const nStars = 2 + Math.floor(power * 5);
+  for (let i = 0; i < nStars; i++) fx(starTex, _v, { life: rand(0.5, 0.8), s0: rand(0.22, 0.36), s1: 0.1, v: new THREE.Vector3(-K.wallN.x * rand(2, 6) + rand(-2, 2), rand(2, 6), -K.wallN.z * rand(2, 6) + rand(-2, 2)), g: -14, spin: rand(-8, 8) });
+  if (power > 0.8) screenFlash(0.35);
+  SFX.wall(power); buzz(Math.round(12 + power * 40));
+}
+
+function onFlailHit(n, vn, cx, cy, cz) {
+  if (K.hitCool > 0) return false;
+  const dmg = -vn; if (dmg < 2.6) return false;
+  K.hitCool = 0.12;
+  const crit = Math.random() < 0.11 && dmg > 7;
+  const airborne = K.airborne;
+  // impulse exchange
+  const mb = 1.5 * (1 + K.fatVis * 0.7);
+  const J = (1 + 0.45) * dmg / (1 / FL.mass + 1 / mb);
+  const head = FL.p[FL.n - 1], hp = FL.pp[FL.n - 1];
+  FL.headV.addScaledVector(_v.set(n.nx, n.ny, n.nz), J / FL.mass);
+  head.x += n.nx * n.pen; head.y += n.ny * n.pen; head.z += n.nz * n.pen;
+  hp.copy(head).addScaledVector(FL.headV, -1 / 120);
+  let launch = J / mb * 1.55 * (crit ? 2.2 : 1) * rand(0.85, 1.35);
+  const wild = Math.random() < 0.1; if (wild) launch *= 2.2; // physics being physics
+  const up = launch * 0.6 + (crit ? 10 : 3.5);
+  kabuApplyImpulse(-n.nx * launch, -n.ny * launch * 0.6 + up, -n.nz * launch, cx, cy, cz, 0.55, 0.55);
+  // 空中で連打すると青天井になるので上向き速度に上限 (ふだん約11m、たまに約25m)
+  { let vy = 0; for (let i = 0; i < NP; i++) vy += K.v[i * 3 + 1]; vy /= NP;
+    const cap = (wild || crit) ? 21 : 14;
+    if (vy > cap) for (let i = 0; i < NP; i++) K.v[i * 3 + 1] -= vy - cap; }
+  K.stun = 0.7 + dmg * 0.05 + (crit ? 1 : 0); K.uprightK = 0; K.flash = 1; K.face = 'hurt'; K.faceT = 0.7; K.dizzy = Math.min(1, K.dizzy + 0.22);
+  // scoring
+  if (G.mode === 'play') {
+    G.combo = G.comboT > 0 ? G.combo + 1 : 1; G.comboT = 1.6; G.maxCombo = Math.max(G.maxCombo, G.combo); G.hits++;
+    const comboM = 1 + Math.min(2, (G.combo - 1) * 0.15);
+    const pts = Math.round(dmg * 9 * mult() * comboM * (airborne ? 1.5 : 1) * (crit ? 2 : 1));
+    addScore(pts);
+    const word = crit ? '会心の一撃!!' : dmg < 8 ? 'ポコッ' : dmg < 13 ? 'ボコッ!' : dmg < 19 ? 'ドゴォ!!' : 'ズドーン!!!';
+    _v.set(cx, cy + 0.6, cz); pop(_v, (airborne ? '空中' : '') + word, pts, crit || dmg >= 19 ? 'big' : '');
+  }
+  // water spurt (the fatter, the bigger)
+  spurtWater(dmg);
+  K.fat = Math.max(0, K.fat - dmg * 0.014 * (1 + K.fat));
+  // feel
+  const power = clamp(dmg / 24, 0, 1);
+  G.hitStop = crit ? 0.26 : clamp(0.04 + dmg * 0.0065, 0.05, 0.19);
+  G.trauma = Math.min(1, G.trauma + 0.3 + power * 0.6 + (crit ? 0.4 : 0));
+  _v.set(cx, cy, cz);
+  fx(burstTex, _v, { life: 0.28 + power * 0.1, s0: 0.4, s1: 1.4 + power * 1.6 + (crit ? 1.5 : 0), top: true, unfreeze: true });
+  fx(ringTex, _v, { life: 0.35, s0: 0.3, s1: 2.5 + power * 2, top: true, unfreeze: true });
+  const nStars = 4 + Math.floor(power * 6);
+  for (let i = 0; i < nStars; i++) fx(starTex, _v, { life: rand(0.5, 0.8), s0: rand(0.25, 0.4), s1: 0.1, v: new THREE.Vector3(rand(-5, 5), rand(2, 7), rand(-5, 5)), g: -14, spin: rand(-8, 8) });
+  if (crit) { screenFlash(0.7); banner('会心!!'); }
+  SFX.hit(power, crit); buzz(Math.round(15 + power * 45 + (crit ? 60 : 0)));
+  return true;
+}
+
+// ======================================================================
+// Input
+// ======================================================================
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+function pointerToPlane(e, y, out) {
+  ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  const t = (y - ray.ray.origin.y) / ray.ray.direction.y;
+  if (!(t > 0)) return false;
+  out.copy(ray.ray.origin).addScaledVector(ray.ray.direction, Math.min(t, 40)); return true;
+}
+function handlePointer(e) {
+  if (G.mode !== 'play') return;
+  if (G.tool === 'hose') { if (pointerToPlane(e, 0.45, HOSE.target)) HOSE.active = true; }
+  else { pointerToPlane(e, FLAIL_Y, FL.target); }
+}
+canvas.addEventListener('pointerdown', (e) => {
+  if (G.pointer !== null) return; G.pointer = e.pointerId; canvas.setPointerCapture(e.pointerId); handlePointer(e); hideHintSoon();
+});
+canvas.addEventListener('pointermove', (e) => { if (e.pointerId === G.pointer) handlePointer(e); });
+const endPointer = (e) => { if (e.pointerId !== G.pointer) return; G.pointer = null; HOSE.active = false; };
+canvas.addEventListener('pointerup', endPointer); canvas.addEventListener('pointercancel', endPointer);
+window.addEventListener('contextmenu', (e) => e.preventDefault());
+document.addEventListener('gesturestart', (e) => e.preventDefault());
+
+let hintTimer = null;
+function hideHintSoon() { clearTimeout(hintTimer); hintTimer = setTimeout(() => { ui.hint.style.opacity = 0; }, 1400); }
+function setTool(t) {
+  G.tool = t; HOSE.active = false;
+  $('#toolHose').setAttribute('aria-pressed', t === 'hose'); $('#toolFlail').setAttribute('aria-pressed', t === 'flail');
+  ui.hint.textContent = t === 'hose' ? '画面をなぞって水をかけよう' : '大きくスワイプして、ぶんまわせ！';
+  ui.hint.style.opacity = 1; hideHintSoon();
+  flailG.visible = t === 'flail'; nozzle.visible = t === 'hose';
+  if (t === 'flail') { // bring the flail in near kabukun
+    const cc = kabuCenter(); FL.target.set(cc.x + 1.6, FLAIL_Y, cc.z + 1.4);
+    FL.anchor.copy(FL.target); FL.p.forEach((p, i) => { p.set(FL.target.x, FLAIL_Y - i * FL.seg, FL.target.z); FL.pp[i].copy(p); });
+  }
+  if (AU.ctx) tone(AU.ctx.currentTime, 'triangle', t === 'hose' ? 660 : 440, t === 'hose' ? 990 : 330, 0.1, 0.08);
+}
+$('#toolHose').addEventListener('click', () => setTool('hose'));
+$('#toolFlail').addEventListener('click', () => setTool('flail'));
+
+// ======================================================================
+// Flow
+// ======================================================================
+const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } } };
+let best = parseInt(store.get('kabuContestBest') || '0', 10) || 0;
+if (best) $('#bestTitle').textContent = `自己ベスト ${best.toLocaleString()}`;
+
+function startGame() {
+  audioInit();
+  Object.assign(G, { mode: 'count', time: 30, score: 0, shown: 0, hits: 0, combo: 0, comboT: 0, maxCombo: 0, maxFly: 0, countdown: 3.2, lastTick: 4 });
+  for (const k of KABUS) { k.active = false; k.root.visible = false; k.blob.visible = false; k.stars.forEach((sp) => { sp.visible = false; }); }
+  K = KABUS[0]; K.active = true; K.root.visible = true; K.fat = 0; K.fatVis = 0; K.dizzy = 0; K.wantSplit = false; kabuReset(0, 0, -0.5, 0.3);
+  $('#title').hidden = true; $('#result').hidden = true; $('#hud').hidden = false; $('#dock').hidden = false;
+  ui.score.textContent = '0'; setTool('hose'); ui.timeChip.classList.remove('hurry');
+}
+$('#startBtn').addEventListener('click', startGame);
+$('#againBtn').addEventListener('click', startGame);
+
+const RANKS = [[0, 'かぶ見習い'], [12000, 'かぶしばき'], [35000, 'かぶクラッシャー'], [70000, 'かぶ大魔王'], [120000, '伝説のかぶ農家']];
+function endGame() {
+  G.mode = 'end'; HOSE.active = false; setLoop(AU.water || { g: { gain: {} } }, 0);
+  SFX.whistle(); banner('しゅうりょう!');
+  setTimeout(() => {
+    $('#hud').hidden = true; $('#dock').hidden = true;
+    const rank = RANKS.filter((r) => G.score >= r[0]).pop()[1];
+    $('#rScore').textContent = G.score.toLocaleString(); $('#rRank').textContent = rank;
+    $('#rHits').textContent = G.hits; $('#rCombo').textContent = G.maxCombo; $('#rFly').textContent = G.maxFly.toFixed(1) + 'm';
+    const nb = G.score > best; $('#newBest').hidden = !nb;
+    if (nb) { best = G.score; store.set('kabuContestBest', String(best)); SFX.fanfare(); }
+    $('#rBest').textContent = `自己ベスト ${best.toLocaleString()}`; $('#bestTitle').textContent = `自己ベスト ${best.toLocaleString()}`;
+    $('#copied').textContent = '';
+    $('#result').hidden = false; G.mode = 'result';
+  }, 1400);
+}
+$('#copyBtn').addEventListener('click', () => {
+  const txt = `かぶくんコンテストで ${G.score.toLocaleString()}点！ 称号「${$('#rRank').textContent}」 最高ふっとび ${G.maxFly.toFixed(1)}m`;
+  const done = (m) => { $('#copied').textContent = m; };
+  try { navigator.clipboard.writeText(txt).then(() => done('コピーしました'), () => done(txt)); } catch (e) { done(txt); }
+});
+
+// ======================================================================
+// Main loop
+// ======================================================================
+function resize() {
+  const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  const vf = THREE.MathUtils.degToRad(camera.fov);
+  const hf = 2 * Math.atan(Math.tan(vf / 2) * camera.aspect);
+  const byW = 6.4 / (2 * Math.tan(hf / 2)), byH = 8.2 / (2 * Math.tan(vf / 2));
+  camDist = Math.max(byW, byH);
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize); resize();
+
+const clock = new THREE.Clock();
+let acc = 0, simT = 0, lastPhysStep = 1 / 120, wanderNext = 0;
+const H = 1 / 120;
+
+function kabuCenter() {
+  const out = new THREE.Vector3(); let n = 0;
+  for (const k of KABUS) if (k.active && !k.out) { out.add(k.c); n++; }
+  return n ? out.divideScalar(n) : out;
+}
+function updateBrain(dt) {
+  wallFx.flash = Math.max(0, wallFx.flash - dt * 3); barrierMat.opacity = 0.3 + wallFx.flash * 0.7; barrierMat.color.setHex(wallFx.flash > 0.05 ? 0xffd0e0 : 0x9fe6ff);
+  for (const k of KABUS) { if (!k.active) continue; K = k; brainOne(dt); }
+}
+function brainOne(dt) {
+  // wander / chase water
+  K.walkTimer -= dt;
+  if (HOSE.active && G.tool === 'hose' && lastWetX * lastWetX + lastWetZ * lastWetZ < (ARENA_R - 0.8) ** 2) {
+    if (K.walkTimer <= 0 || !K.chase) { K.chase = true; K.chaseOff = [rand(-0.6, 0.6), rand(-0.6, 0.6)]; K.walkTimer = 1; }
+    K.walkTarget.set(lastWetX + K.chaseOff[0], 0, lastWetZ + K.chaseOff[1]);
+  } else if (K.chase || K.walkTimer <= 0 || Math.hypot(K.walkTarget.x - K.c.x, K.walkTarget.z - K.c.z) < 0.3) {
+    K.chase = false;
+    const a = rand(0, Math.PI * 2), r = Math.sqrt(Math.random()) * (ARENA_R - 1.3);
+    K.walkTarget.set(Math.cos(a) * r, 0, Math.sin(a) * r); K.walkTimer = rand(2, 4.5);
+  }
+  // stun / upright recovery
+  if (K.grounded > 0) K.stun -= dt;
+  const upDot = K.R[4]; // local up . world up
+  if (K.airborne) K.uprightK = 0;
+  else if (K.stun > 0) K.uprightK = 0.01;
+  else K.uprightK = Math.min(0.5, K.uprightK + dt * (upDot < 0.5 ? 0.25 : 0.9));
+  if (K.stun > 0 || K.airborne) { const f = _v.set(0, 0, 1).applyQuaternion(K.quat); if (Math.abs(f.y) < 0.9) K.heading = Math.atan2(f.x, f.z); }
+  const hsp = Math.hypot(K.vc.x, K.vc.z);
+  K.speed = lerp(K.speed, K.grounded && K.stun <= 0 ? hsp : 0, 0.2);
+  K.walkPhase += dt * (4 + K.speed * 9);
+  K.fatVis = lerp(K.fatVis, K.fat, 1 - Math.exp(-dt * 8));
+  K.dizzy = Math.max(0, K.dizzy - dt * 0.12);
+  K.hitCool -= dt; K.wallCool -= dt; K.bumpCool -= dt;
+  K.wet = Math.max(0, K.wet - dt * 1.5);
+}
+
+function updateFaceAndAnim(dt) {
+  for (const k of KABUS) { if (!k.active) continue; K = k; faceOne(dt); }
+}
+function faceOne(dt) {
+  if (!K.mixer) return;
+  K.faceT -= dt; K.blinkT -= dt;
+  if (K.blinkT < 0) { K.blink = 1; if (K.blinkT < -0.12) { K.blink = 0; K.blinkT = rand(1.8, 4); } }
+  let face = 'normal';
+  if (K.faceT > 0) face = K.face;
+  else if (K.airborne && K.maxY - 0.72 > 0.6) face = 'fly';
+  else if (K.stun > 0 || K.dizzy > 0.6) face = 'dizzy';
+  else if (K.wet > 0.2) face = 'happy';
+  const t = simT;
+  const eyes = { blink: K.blink }, mouth = {};
+  if (face === 'happy') { eyes.happy = 1; eyes.blink = 0; mouth.smile_open = 1; }
+  else if (face === 'hurt') { eyes.surprised = 1; eyes.blink = 0; mouth.wide = 1; mouth.frown = 0.6; }
+  else if (face === 'fly') { eyes.surprised = 1; eyes.blink = 0; mouth.open = 1; }
+  else if (face === 'dizzy') { eyes.half = 1; eyes.look_left = Math.max(0, Math.sin(t * 9)); eyes.look_right = Math.max(0, -Math.sin(t * 9)); mouth.frown = 1; mouth.small = 0.5; }
+  else if (K.fat > 0.9) { mouth.small = 0.6; eyes.half = 0.3; }
+  setMorphs(K.eyes, eyes); setMorphs(K.mouth, mouth);
+  // anim weights
+  const want = { walk: 0, idle: 0, surprised: 0, happy: 0 };
+  if (K.airborne || K.stun > 0) want.surprised = 1;
+  else if (face === 'happy' && K.speed < 0.2) want.happy = 1;
+  else { const w = clamp(K.speed * 2.2, 0, 1); want.walk = w; want.idle = 1 - w; }
+  for (const k in want) { K.animW[k] = lerp(K.animW[k], want[k], 1 - Math.exp(-dt * 10)); K.actions[k] && K.actions[k].setEffectiveWeight(K.animW[k]); }
+  if (K.actions.walk) K.actions.walk.timeScale = 0.8 + K.speed * 1.4;
+  K.mixer.update(dt);
+  // hit flash
+  K.flash = Math.max(0, K.flash - dt * 5);
+  for (const m of K.bodyMats) m.emissive.setRGB(K.flash * 0.9, K.flash * 0.25, K.flash * 0.2);
+}
+
+function physics(dt) {
+  acc += dt; let steps = 0;
+  outer: while (acc >= H && steps < 5) {
+    acc -= H; steps++; simT += H;
+    for (const k of KABUS) {
+      if (!k.active) continue; K = k;
+      K.wallImp = 0;
+      const impact = kabuStep(H, simT);
+      if (impact > 5 && !K.out && Math.random() < 0.6) SFX.thud(impact / 30);
+      if (K.wallImp > 5.5 && K.wallCool <= 0 && !K.out) { onWallHit(K.wallImp); if (G.hitStop > 0) { acc = 0; break outer; } }
+    }
+    kabuCollide();
+    if (G.hitStop > 0) { acc = 0; break; }
+    flailStep(H);
+    // flail vs bodies
+    if (G.tool === 'flail') {
+      const head = FL.p[FL.n - 1];
+      for (const k of KABUS) {
+        if (!k.active || k.out) continue;
+        if (Math.abs(head.x - k.c.x) > 2.2 || Math.abs(head.z - k.c.z) > 2.2) continue;
+        K = k;
+        const n = bodyHit(head.x, head.y, head.z, FL.headR + 0.16, _hit);
+        if (!n) continue;
+        // relative normal velocity: head vs body near contact
+        const vn = (FL.headV.x - K.vc.x) * n.nx + (FL.headV.y - K.vc.y) * n.ny + (FL.headV.z - K.vc.z) * n.nz;
+        const cx = head.x - n.nx * FL.headR, cy = head.y - n.ny * FL.headR, cz = head.z - n.nz * FL.headR;
+        const hit = vn < 0 && onFlailHit(n, vn, cx, cy, cz);
+        if (!hit) { // soft push apart
+          head.x += n.nx * n.pen; head.y += n.ny * n.pen; head.z += n.nz * n.pen;
+          kabuApplyImpulse(-n.nx * 0.08, 0, -n.nz * 0.08, cx, cy, cz, 0.5, 0.4);
+        }
+        if (G.hitStop > 0) { acc = 0; break outer; }
+      }
+    }
+  }
+  for (const k of KABUS) { if (!k.active) continue; K = k; airOne(dt); }
+}
+function airOne(dt) {
+  // airborne bookkeeping (once per frame)
+  const wasAir = K.airborne;
+  K.airborne = K.grounded === 0;
+  if (K.airborne) { K.airTime += dt; K.maxY = Math.max(K.maxY, K.c.y); }
+  else {
+    if (wasAir && K.airTime > 0.35) {
+      const hgt = K.maxY - 0.72;
+      if (hgt > 1.6 && G.mode === 'play' && !K.dropIn) {
+        const pts = Math.round(hgt * 60 * mult());
+        addScore(pts); G.maxFly = Math.max(G.maxFly, hgt);
+        _v.copy(K.c); _v.y += 1; pop(_v, `ふっとび ${hgt.toFixed(1)}m`, pts);
+        G.trauma = Math.min(1, G.trauma + 0.35); buzz(30);
+      }
+    }
+    K.airTime = 0; K.maxY = K.c.y; K.dropIn = false;
+  }
+  if (K.airborne && !K.dropIn && K.c.y - 0.72 > 1.6 && !K._boinged) { K._boinged = true; SFX.boing(); }
+  if (!K.airborne) K._boinged = false;
+  // fell off the island
+  if (!K.out && K.c.y < -5) {
+    K.out = true; K.respawnT = 0.9;
+    if (G.mode === 'play') {
+      const pts = Math.round(400 * mult()); addScore(pts); if (!K.dropIn) G.maxFly = Math.max(G.maxFly, K.maxY - 0.72);
+      banner('場外!!'); _v.set(K.c.x * 0.6, 1.5, K.c.z * 0.6); pop(_v, '場外ボーナス', pts, 'big'); buzz(80);
+    }
+  }
+  if (K.out) {
+    K.respawnT -= dt;
+    if (K.respawnT <= 0) {
+      const a = rand(0, Math.PI * 2), r = rand(0, 1.8);
+      kabuReset(Math.cos(a) * r, 9, Math.sin(a) * r, rand(-1, 1)); K.stun = 0.6; K.dropIn = true;
+    }
+  }
+}
+
+function frame() {
+  requestAnimationFrame(frame);
+  tick(Math.min(clock.getDelta(), 1 / 20));
+}
+function tick(dt) {
+  if (!READY) { renderer.render(scene, camera); return; }
+
+  // timers
+  if (G.mode === 'count') {
+    G.countdown -= dt; const n = Math.ceil(G.countdown);
+    if (n !== G.lastTick && n > 0 && n <= 3) { G.lastTick = n; banner(String(n)); SFX.tick(false); }
+    if (G.countdown <= 0) { G.mode = 'play'; banner('ボコれ!'); SFX.tick(true); }
+  } else if (G.mode === 'play') {
+    G.time -= dt; G.comboT -= dt;
+    if (G.time <= 5 && Math.ceil(G.time) !== G.lastTick) { G.lastTick = Math.ceil(G.time); if (G.time > 0) SFX.tick(false); ui.timeChip.classList.add('hurry'); }
+    if (G.time <= 0) { G.time = 0; endGame(); }
+  }
+
+  const frozen = G.hitStop > 0;
+  if (frozen) G.hitStop -= dt;
+  else {
+    updateBrain(dt);
+    physics(dt);
+    // hose emission
+    if (HOSE.active && G.mode === 'play' && G.tool === 'hose') {
+      HOSE.acc += dt * 320;
+      const start = _v2.set(0, 0, 0.5).applyMatrix4(nozzle.matrixWorld);
+      while (HOSE.acc >= 1) {
+        HOSE.acc -= 1;
+        const tx = HOSE.target.x + rand(-0.12, 0.12), ty = HOSE.target.y, tz = HOSE.target.z + rand(-0.12, 0.12);
+        const dist = Math.hypot(tx - start.x, ty - start.y, tz - start.z);
+        const T = clamp(0.22 + dist * 0.032, 0.25, 0.65) * rand(0.94, 1.06); const g = GRAV * 0.8;
+        spawnDrop(start.x, start.y, start.z, (tx - start.x) / T, (ty - start.y) / T - 0.5 * g * T, (tz - start.z) / T, rand(0.04, 0.065), 0, T * 2.5);
+      }
+    }
+    dropsUpdate(dt);
+    for (const k of KABUS) if (k.active && k.wantSplit) splitKabu(k);
+  }
+  fxUpdate(dt, frozen);
+  if (dropHitsThisFrame > 0 && Math.random() < 0.15) SFX.drop();
+  dropHitsThisFrame = 0;
+
+  // audio loops
+  if (AU.ctx) {
+    setLoop(AU.water, HOSE.active && G.mode === 'play' && G.tool === 'hose' ? 0.22 : 0, 1500 + Math.random() * 400);
+    const sp = G.tool === 'flail' && G.mode === 'play' ? FL.headV.length() : 0;
+    setLoop(AU.swish, clamp((sp - 8) / 22, 0, 1) * 0.35, 500 + sp * 30);
+  }
+
+  // kabukun render transform + lattice displacements
+  for (const k of KABUS) {
+    if (!k.active) continue; K = k;
+    K.root.position.copy(K.c); K.root.quaternion.copy(K.quat);
+    const R = K.R, x = K.x, d = K.sbu.uDisp.value;
+    for (let i = 0; i < NP; i++) {
+      const dx = x[i * 3] - K.c.x, dy = x[i * 3 + 1] - K.c.y, dz = x[i * 3 + 2] - K.c.z;
+      d[i].set(R[0] * dx + R[3] * dy + R[6] * dz - Q[i * 3], R[1] * dx + R[4] * dy + R[7] * dz - Q[i * 3 + 1], R[2] * dx + R[5] * dy + R[8] * dz - Q[i * 3 + 2]);
+    }
+    // shadow
+    const blob = K.blob;
+    blob.visible = K.c.x * K.c.x + K.c.z * K.c.z < ARENA_R * ARENA_R && K.c.y > -0.5;
+    const hgt = Math.max(0, K.c.y - 0.6), fs = fatScale(K.fatVis);
+    blob.position.x = K.c.x; blob.position.z = K.c.z;
+    blob.scale.set(2.3 * fs[0] / (1 + hgt * 0.25), 1.5 * fs[2] / (1 + hgt * 0.25), 1);
+    blob.material.opacity = 1 / (1 + hgt * 0.4);
+    // dizzy stars
+    const showStars = (K.stun > 0 || K.dizzy > 0.6) && !K.out;
+    K.stars.forEach((sp, i) => {
+      sp.visible = showStars; if (!showStars) return;
+      const a = simT * 4 + i * Math.PI * 2 / 3;
+      _v.set(Math.cos(a) * 0.55, 0.95 * fs[1], Math.sin(a) * 0.35).applyQuaternion(K.quat).add(K.c); sp.position.copy(_v);
+    });
+  }
+  if (!frozen) updateFaceAndAnim(dt);
+
+  if (G.tool === 'flail') flailRender();
+
+  // camera: follow kabukun loosely, zoom out on big flights, shake on hits
+  const cc = kabuCenter(), nAct = activeKabus().length;
+  const follow = nAct > 1 ? 0.25 : 0.42;
+  camTarget.x = lerp(camTarget.x, clamp(cc.x * follow, -2, 2), 1 - Math.exp(-dt * 3));
+  camTarget.z = lerp(camTarget.z, clamp(cc.z * follow, -2, 2) + 0.2, 1 - Math.exp(-dt * 3));
+  const lift = nAct > 1 ? clamp(cc.y - 2.2, 0, 2.5) : Math.max(0, cc.y - 2.2);
+  camTarget.y = lerp(camTarget.y, 0.6 + lift * 0.55, 1 - Math.exp(-dt * 4));
+  const dist = camDist + lift * 0.5;
+  const el = THREE.MathUtils.degToRad(33);
+  camera.position.set(camTarget.x, camTarget.y + Math.sin(el) * dist, camTarget.z + Math.cos(el) * dist);
+  camera.lookAt(camTarget);
+  G.trauma = Math.max(0, G.trauma - dt * 1.8);
+  const sh = G.trauma * G.trauma;
+  if (sh > 0.001) {
+    camera.position.x += (Math.random() * 2 - 1) * sh * 0.5; camera.position.y += (Math.random() * 2 - 1) * sh * 0.4;
+    camera.rotation.z += (Math.random() * 2 - 1) * sh * 0.05;
+  }
+  // nozzle sits at the bottom-centre of the view, aimed at the target
+  {
+    ndc.set(0.55, -0.6); ray.setFromCamera(ndc, camera);
+    nozzle.position.copy(ray.ray.origin).addScaledVector(ray.ray.direction, 5.5);
+    if (HOSE.active) nozzle.lookAt(HOSE.target); else { _v.set(cc.x, 0.4, cc.z); nozzle.lookAt(_v); }
+    nozzle.updateMatrixWorld();
+  }
+
+  // HUD
+  if (G.mode === 'play' || G.mode === 'count' || G.mode === 'end') {
+    ui.time.textContent = G.time.toFixed(1);
+    G.shown = G.shown + Math.ceil((G.score - G.shown) * 0.25);
+    ui.score.textContent = G.shown.toLocaleString();
+    ui.combo.textContent = G.combo > 1 ? `${G.combo} コンボ!` : '';
+    ui.combo.classList.toggle('on', G.comboT > 0 && G.combo > 1);
+    let maxFat = 0; for (const k of KABUS) if (k.active) maxFat = Math.max(maxFat, k.fat);
+    ui.mult.textContent = nAct + '匹';
+    ui.fatBar.style.width = (nAct >= MAX_KABU ? 100 : clamp(maxFat / SPLIT_FAT, 0, 1) * 100).toFixed(0) + '%';
+  }
+  renderer.render(scene, camera);
+}
+flailG.visible = false;
+window.__kabu = { G, KABUS, get K() { return K; }, FL, HOSE, tick, setTool, startGame, camera, renderer, scene };
+frame();
+</script>
+</body></html>
