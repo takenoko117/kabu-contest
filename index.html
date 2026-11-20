@@ -49,6 +49,21 @@ body {
 @keyframes bump { 0% { transform: scale(1.35); } 100% { transform: scale(1); } }
 #combo { font-family: var(--font-display); font-size: 18px; margin-top: 2px; opacity: 0; transition: opacity .2s; color: var(--sun); }
 #combo.on { opacity: 1; }
+#combo.rush { color: #ff6b8b; font-size: 22px; animation: rushPulse .35s ease-in-out infinite alternate; }
+@keyframes rushPulse { from { transform: scale(1); } to { transform: scale(1.12); } }
+#slowFx { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .15s;
+  background: radial-gradient(ellipse at center, rgba(255,255,255,0) 45%, rgba(255,120,160,.35) 100%); }
+#slowFx.on { opacity: 1; }
+#massBanner { position: fixed; left: 0; right: 0; top: 22%; text-align: center; pointer-events: none; opacity: 0;
+  font-family: var(--font-display); color: var(--sun); line-height: 1.05; }
+#massBanner .n { display: block; font-size: clamp(64px, 22vw, 140px); }
+#massBanner .t { display: block; font-size: clamp(30px, 9vw, 56px); color: #fff; }
+#massBanner .p { display: block; font-size: clamp(26px, 8vw, 44px); }
+#massBanner.show { animation: massIn 1.5s cubic-bezier(.2,1.3,.4,1) forwards; }
+@keyframes massIn {
+  0% { opacity: 0; transform: scale(3) rotate(-10deg); } 12% { opacity: 1; transform: scale(.9) rotate(2deg); }
+  22% { transform: scale(1.08) rotate(-1deg); } 80% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.15); }
+}
 #multChip { justify-self: end; }
 #multChip b { color: var(--water); }
 .meter { width: 58px; height: 8px; border-radius: 6px; background: #dfe8f3; border: 2px solid var(--ink); overflow: hidden; margin-top: 3px; }
@@ -155,6 +170,7 @@ body {
 
 <div id="hud" hidden>
   <div class="chip" id="timeChip"><small>のこり</small><b id="time">30.0</b></div>
+  <div id="slowFx"></div><div id="massBanner" class="outline"></div>
   <div id="scoreBox"><div id="score" class="outline">0</div><div id="combo" class="outline"></div></div>
   <div class="chip" id="multChip"><small>かぶ</small><b id="mult">1匹</b><div class="meter"><i id="fatBar"></i></div></div>
 </div>
@@ -233,7 +249,8 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.NoToneMapping;
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 250);
+const BASE_FOV = 42;
+const camera = new THREE.PerspectiveCamera(BASE_FOV, 1, 0.1, 250);
 
 function canvasTex(w, h, draw) {
   const c = document.createElement('canvas'); c.width = w; c.height = h;
@@ -382,6 +399,12 @@ const SFX = {
     noiseHit(t, 0.3 + p * 0.5, 'lowpass', 1400 + p * 2000, 0.1 + p * 0.15);
     tone(t, 'triangle', 420, 380, 0.08 + p * 0.08, 0.35); tone(t, 'triangle', 637, 600, 0.05 + p * 0.06, 0.3); // ぼよん/ガン の金属っぽい鳴り
     const v = t + 0.06; tone(v, 'triangle', 1100 + p * 300, 600, 0.1, 0.14);
+  },
+  mass(n) {
+    if (!AU.ctx) return; const t = AU.ctx.currentTime;
+    tone(t, 'sawtooth', 70, 30, 0.4, 0.9); noiseHit(t, 0.6, 'lowpass', 1800, 0.6);
+    const base = n >= 7 ? 392 : 330;
+    [1, 1.25, 1.5, 2].forEach((m, i) => tone(t + 0.12 + i * 0.07, 'triangle', base * m, base * m, 0.16, 0.5));
   },
   split() {
     if (!AU.ctx) return; const t = AU.ctx.currentTime;
@@ -851,6 +874,11 @@ const starTex = canvasTex(128, 128, (g, w, h) => {
 const ringTex = canvasTex(256, 256, (g, w, h) => { g.beginPath(); g.arc(w / 2, h / 2, 110, 0, Math.PI * 2); g.lineWidth = 14; g.strokeStyle = '#fff'; g.stroke(); });
 const FX = [];
 function fx(tex, pos, opt) {
+  // ラッシュ中は衝撃系を小さく・少なくして画面を見やすく
+  if (opt.top && G.combo >= 8 && G.comboT > 0) {
+    if (tex === ringTex) return;
+    if (tex === burstTex) { if (FX.length > 14) return; opt = { ...opt, s1: opt.s1 * 0.55, life: opt.life * 0.8 }; }
+  }
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: !opt.top, depthWrite: false }));
   sp.position.copy(pos); sp.renderOrder = opt.top ? 10 : 1; scene.add(sp);
   FX.push({ sp, life: opt.life, max: opt.life, s0: opt.s0, s1: opt.s1, v: opt.v ? opt.v.clone() : null, spin: opt.spin || 0, g: opt.g || 0, frozen: !!opt.unfreeze });
@@ -879,7 +907,8 @@ function pop(world, word, pts, cls = '') {
   popsEl.appendChild(el); setTimeout(() => el.remove(), 1000);
 }
 const bannerEl = $('#banner');
-function banner(text) { bannerEl.textContent = text; bannerEl.classList.remove('show'); void bannerEl.offsetWidth; bannerEl.classList.add('show'); }
+let bannerMuteUntil = 0;
+function banner(text, force) { if (!force && performance.now() < bannerMuteUntil) return; bannerEl.textContent = text; bannerEl.classList.remove('show'); void bannerEl.offsetWidth; bannerEl.classList.add('show'); }
 const flashEl = $('#flash');
 function screenFlash(a) { flashEl.style.transition = 'none'; flashEl.style.opacity = a; requestAnimationFrame(() => { flashEl.style.transition = 'opacity .25s'; flashEl.style.opacity = 0; }); }
 
@@ -888,12 +917,66 @@ function screenFlash(a) { flashEl.style.transition = 'none'; flashEl.style.opaci
 // ======================================================================
 const G = {
   mode: 'title', tool: 'hose', time: 30, score: 0, shown: 0, hits: 0, combo: 0, comboT: 0, maxCombo: 0, maxFly: 0,
-  hitStop: 0, trauma: 0, countdown: 0, lastTick: 0, pointer: null,
+  hitStop: 0, trauma: 0, countdown: 0, lastTick: 0, pointer: null, slowT: 0, slowScale: 1, timeScale: 1, fovKick: 0, maxMulti: 0,
 };
 const camTarget = new THREE.Vector3(0, 0.6, 0);
 let camDist = 14;
 const ui = { score: $('#score'), time: $('#time'), timeChip: $('#timeChip'), combo: $('#combo'), mult: $('#mult'), fatBar: $('#fatBar'), hint: $('#hint') };
 const mult = () => 1 + K.fat * 1.4; // K = いま処理中のかぶ
+
+// ---- 動的ヒットストップ ----
+// 直近に止めた量を heat として持ち、熱いほど短く・弱いヒットでは止めない。
+// コンボ8以上の「ラッシュ」中は会心や特大ヒットだけ止める。
+const HS = { heat: 0, gap: 0 };
+const isRush = () => G.combo >= 8 && G.comboT > 0;
+function hitStop(dur, power, force = false) {
+  // force = 会心。それ以外は「熱」と間隔で強く間引く
+  if (G.slowT > 0) return false;                       // スロー中は止めない
+  const rush = isRush();
+  if (force) { if (HS.heat > 0.45) return false; }
+  else {
+    if (HS.gap > 0) return false;                      // 直前のストップから最低間隔
+    if (HS.heat > (rush ? 0.08 : 0.22)) return false;  // 止めすぎ予算オーバー
+    const need = (rush ? 0.8 : 0.3) + HS.heat * 2;
+    if (power < need) return false;
+  }
+  const d = Math.min(dur, force ? 0.24 : rush ? 0.08 : 0.16) / (1 + HS.heat * 4);
+  if (d < 0.03) return false;
+  G.hitStop = Math.max(G.hitStop, d); HS.heat += d; HS.gap = rush ? 0.6 : 0.35;
+  return true;
+}
+function addTrauma(a) {
+  // 揺れも連続すると見づらいので、熱とラッシュで減衰
+  G.trauma = Math.min(isRush() ? 0.6 : 1, G.trauma + a / (1 + HS.heat * 3));
+}
+// 一定時間内に「ふっとばしたかぶ」の数を数えて、まとめて飛ばしたら特別演出
+const MULTI = { t: new Map(), best: 0, clock: 0 };
+function noteLaunch(k) { if (G.mode === 'play') MULTI.t.set(k, MULTI.clock); }
+function multiUpdate(dt) {
+  MULTI.clock += dt;
+  for (const [k, t] of MULTI.t) if (MULTI.clock - t > 0.9) MULTI.t.delete(k);
+  const n = MULTI.t.size;
+  if (n === 0) MULTI.best = 0;
+  const steps = [3, 5, 7, 10];
+  const reach = steps.filter((x) => n >= x).pop() || 0;
+  if (reach > MULTI.best) { MULTI.best = reach; massLaunch(n); }
+}
+const massEl = $('#massBanner'), slowEl = $('#slowFx');
+function massLaunch(n) {
+  const pts = n * n * 50;
+  addScore(pts); G.maxMulti = Math.max(G.maxMulti || 0, n);
+  const t = n >= 10 ? 'ぜんぶ ふっとび!!!' : n >= 7 ? 'まとめて ふっとび!!' : n >= 5 ? 'まとめて ふっとび!' : 'まとめて!';
+  massEl.innerHTML = `<span class="n">${n}匹</span><span class="t">${t}</span><span class="p">+${pts.toLocaleString()}</span>`;
+  massEl.classList.remove('show'); void massEl.offsetWidth; massEl.classList.add('show');
+  bannerMuteUntil = performance.now() + 1300; bannerEl.classList.remove('show');
+  // スローモーション + 画角パンチ (ヒットストップの代わり)
+  G.hitStop = 0;
+  G.slowT = n >= 7 ? 0.95 : n >= 5 ? 0.7 : 0.45; G.slowScale = n >= 7 ? 0.22 : 0.35;
+  G.fovKick = n >= 7 ? -10 : -6;
+  screenFlash(n >= 7 ? 0.55 : 0.3); G.trauma = Math.min(1, G.trauma + 0.5);
+  HS.heat = 0; // スロー明けはまた止められるように
+  SFX.mass(n); buzz(n >= 7 ? [60, 40, 120] : [40, 30, 60]);
+}
 
 function addScore(n) { G.score += n; ui.score.classList.remove('bump'); void ui.score.offsetWidth; ui.score.classList.add('bump'); }
 
@@ -971,11 +1054,12 @@ function onKabuBump(A, B, spd, cx, cy, cz) {
     const pts = Math.round(spd * 7 * mult() * comboM);
     addScore(pts);
     const word = spd < 8 ? 'ゴチン' : spd < 12 ? 'かぶ玉突き!' : 'かぶストライク!!';
-    _v.set(cx, cy + 0.7, cz); pop(_v, word, pts, spd >= 12 ? 'big' : '');
+    if (!(isRush() && spd < 12)) { _v.set(cx, cy + 0.7, cz); pop(_v, word, pts, spd >= 12 ? 'big' : ''); }
   }
   K = B; spurtWater(spd * 0.5);
-  G.hitStop = Math.max(G.hitStop, clamp(0.02 + spd * 0.005, 0.03, 0.1));
-  G.trauma = Math.min(1, G.trauma + 0.15 + power * 0.4);
+  hitStop(clamp(0.02 + spd * 0.005, 0.03, 0.1), power * 0.8);
+  addTrauma(0.15 + power * 0.4);
+  noteLaunch(A); noteLaunch(B);
   _v.set(cx, cy, cz);
   fx(burstTex, _v, { life: 0.22 + power * 0.1, s0: 0.3, s1: 1 + power * 1.3, top: true, unfreeze: true });
   for (let i = 0; i < 2 + Math.floor(power * 4); i++) fx(starTex, _v, { life: rand(0.5, 0.8), s0: rand(0.2, 0.34), s1: 0.1, v: new THREE.Vector3(rand(-4, 4), rand(2, 6), rand(-4, 4)), g: -14, spin: rand(-8, 8) });
@@ -998,13 +1082,13 @@ function onWallHit(spd) {
     addScore(pts);
     const word = crazy ? 'ビヨォォン!!' : spd < 7 ? 'ゴンッ' : spd < 11 ? '壁ドン!' : spd < 16 ? 'ドガシャーン!!' : 'バゴォォン!!!';
     _v.copy(K.wallP).addScaledVector(K.wallN, -0.6); _v.y += 0.6;
-    pop(_v, word, pts, crazy || spd >= 16 ? 'big' : '');
+    if (crazy || spd >= 11 || !isRush()) pop(_v, word, pts, crazy || spd >= 16 ? 'big' : '');
     if (crazy) banner('反射!!');
   }
   spurtWater(spd * 0.7);
   K.fat = Math.max(0, K.fat - spd * 0.006 * (1 + K.fat));
-  G.hitStop = Math.max(G.hitStop, clamp(0.03 + spd * 0.006, 0.04, 0.15));
-  G.trauma = Math.min(1, G.trauma + 0.2 + power * 0.55);
+  hitStop(clamp(0.03 + spd * 0.006, 0.04, 0.15), crazy ? 1 : power * 0.9);
+  addTrauma(0.2 + power * 0.55);
   wallFx.flash = Math.max(wallFx.flash, 0.4 + power * 0.6);
   _v.copy(K.wallP).addScaledVector(K.wallN, -0.1);
   fx(burstTex, _v, { life: 0.25 + power * 0.1, s0: 0.3, s1: 1.1 + power * 1.6, top: true, unfreeze: true });
@@ -1044,15 +1128,16 @@ function onFlailHit(n, vn, cx, cy, cz) {
     const pts = Math.round(dmg * 9 * mult() * comboM * (airborne ? 1.5 : 1) * (crit ? 2 : 1));
     addScore(pts);
     const word = crit ? '会心の一撃!!' : dmg < 8 ? 'ポコッ' : dmg < 13 ? 'ボコッ!' : dmg < 19 ? 'ドゴォ!!' : 'ズドーン!!!';
-    _v.set(cx, cy + 0.6, cz); pop(_v, (airborne ? '空中' : '') + word, pts, crit || dmg >= 19 ? 'big' : '');
+    if (crit || dmg >= 13 || !isRush()) { _v.set(cx, cy + 0.6, cz); pop(_v, (airborne ? '空中' : '') + word, pts, crit || dmg >= 19 ? 'big' : ''); }
   }
   // water spurt (the fatter, the bigger)
   spurtWater(dmg);
   K.fat = Math.max(0, K.fat - dmg * 0.014 * (1 + K.fat));
   // feel
   const power = clamp(dmg / 24, 0, 1);
-  G.hitStop = crit ? 0.26 : clamp(0.04 + dmg * 0.0065, 0.05, 0.19);
-  G.trauma = Math.min(1, G.trauma + 0.3 + power * 0.6 + (crit ? 0.4 : 0));
+  hitStop(crit ? 0.26 : clamp(0.04 + dmg * 0.0065, 0.05, 0.19), crit ? 1 : power, crit);
+  addTrauma(0.3 + power * 0.6 + (crit ? 0.4 : 0));
+  noteLaunch(K);
   _v.set(cx, cy, cz);
   fx(burstTex, _v, { life: 0.28 + power * 0.1, s0: 0.4, s1: 1.4 + power * 1.6 + (crit ? 1.5 : 0), top: true, unfreeze: true });
   fx(ringTex, _v, { life: 0.35, s0: 0.3, s1: 2.5 + power * 2, top: true, unfreeze: true });
@@ -1114,7 +1199,8 @@ if (best) $('#bestTitle').textContent = `自己ベスト ${best.toLocaleString()
 
 function startGame() {
   audioInit();
-  Object.assign(G, { mode: 'count', time: 30, score: 0, shown: 0, hits: 0, combo: 0, comboT: 0, maxCombo: 0, maxFly: 0, countdown: 3.2, lastTick: 4 });
+  Object.assign(G, { mode: 'count', time: 30, score: 0, shown: 0, hits: 0, combo: 0, comboT: 0, maxCombo: 0, maxFly: 0, countdown: 3.2, lastTick: 4, slowT: 0, timeScale: 1, fovKick: 0, maxMulti: 0, hitStop: 0 });
+  HS.heat = 0; MULTI.t.clear(); MULTI.best = 0;
   for (const k of KABUS) { k.active = false; k.root.visible = false; k.blob.visible = false; k.stars.forEach((sp) => { sp.visible = false; }); }
   K = KABUS[0]; K.active = true; K.root.visible = true; K.fat = 0; K.fatVis = 0; K.dizzy = 0; K.wantSplit = false; kabuReset(0, 0, -0.5, 0.3);
   $('#title').hidden = true; $('#result').hidden = true; $('#hud').hidden = false; $('#dock').hidden = false;
@@ -1123,10 +1209,10 @@ function startGame() {
 $('#startBtn').addEventListener('click', startGame);
 $('#againBtn').addEventListener('click', startGame);
 
-const RANKS = [[0, 'かぶ見習い'], [12000, 'かぶしばき'], [35000, 'かぶクラッシャー'], [70000, 'かぶ大魔王'], [120000, '伝説のかぶ農家']];
+const RANKS = [[0, 'かぶ見習い'], [30000, 'かぶしばき'], [100000, 'かぶクラッシャー'], [200000, 'かぶ大魔王'], [320000, '伝説のかぶ農家']];
 function endGame() {
   G.mode = 'end'; HOSE.active = false; setLoop(AU.water || { g: { gain: {} } }, 0);
-  SFX.whistle(); banner('しゅうりょう!');
+  SFX.whistle(); banner('しゅうりょう!', true);
   setTimeout(() => {
     $('#hud').hidden = true; $('#dock').hidden = true;
     const rank = RANKS.filter((r) => G.score >= r[0]).pop()[1];
@@ -1151,7 +1237,7 @@ $('#copyBtn').addEventListener('click', () => {
 function resize() {
   const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false);
   camera.aspect = w / h;
-  const vf = THREE.MathUtils.degToRad(camera.fov);
+  const vf = THREE.MathUtils.degToRad(BASE_FOV);
   const hf = 2 * Math.atan(Math.tan(vf / 2) * camera.aspect);
   const byW = 6.4 / (2 * Math.tan(hf / 2)), byH = 8.2 / (2 * Math.tan(vf / 2));
   camDist = Math.max(byW, byH);
@@ -1318,13 +1404,22 @@ function tick(dt) {
     if (n !== G.lastTick && n > 0 && n <= 3) { G.lastTick = n; banner(String(n)); SFX.tick(false); }
     if (G.countdown <= 0) { G.mode = 'play'; banner('ボコれ!'); SFX.tick(true); }
   } else if (G.mode === 'play') {
-    G.time -= dt; G.comboT -= dt;
+    G.time -= dt * Math.max(0.6, G.timeScale); G.comboT -= dt * G.timeScale;
     if (G.time <= 5 && Math.ceil(G.time) !== G.lastTick) { G.lastTick = Math.ceil(G.time); if (G.time > 0) SFX.tick(false); ui.timeChip.classList.add('hurry'); }
     if (G.time <= 0) { G.time = 0; endGame(); }
   }
 
+  // dynamic time: slow-mo after mass launches, hit-stop heat decays in real time
+  HS.heat = Math.max(0, HS.heat - dt * 0.12); HS.gap -= dt;
+  if (G.slowT > 0) { G.slowT -= dt; G.timeScale = lerp(G.timeScale, G.slowScale, 1 - Math.exp(-dt * 25)); }
+  else G.timeScale = lerp(G.timeScale, 1, 1 - Math.exp(-dt * 5));
+  slowEl.classList.toggle('on', G.slowT > 0);
+  G.fovKick = lerp(G.fovKick, 0, 1 - Math.exp(-dt * 3));
+  camera.fov = BASE_FOV + G.fovKick; camera.updateProjectionMatrix();
+  const realDt = dt; dt *= G.timeScale;
+  multiUpdate(realDt);
   const frozen = G.hitStop > 0;
-  if (frozen) G.hitStop -= dt;
+  if (frozen) G.hitStop -= realDt;
   else {
     updateBrain(dt);
     physics(dt);
@@ -1393,7 +1488,7 @@ function tick(dt) {
   const el = THREE.MathUtils.degToRad(33);
   camera.position.set(camTarget.x, camTarget.y + Math.sin(el) * dist, camTarget.z + Math.cos(el) * dist);
   camera.lookAt(camTarget);
-  G.trauma = Math.max(0, G.trauma - dt * 1.8);
+  G.trauma = Math.max(0, G.trauma - realDt * 1.8);
   const sh = G.trauma * G.trauma;
   if (sh > 0.001) {
     camera.position.x += (Math.random() * 2 - 1) * sh * 0.5; camera.position.y += (Math.random() * 2 - 1) * sh * 0.4;
@@ -1412,8 +1507,9 @@ function tick(dt) {
     ui.time.textContent = G.time.toFixed(1);
     G.shown = G.shown + Math.ceil((G.score - G.shown) * 0.25);
     ui.score.textContent = G.shown.toLocaleString();
-    ui.combo.textContent = G.combo > 1 ? `${G.combo} コンボ!` : '';
+    ui.combo.textContent = G.combo > 1 ? (isRush() ? `${G.combo} ラッシュ!` : `${G.combo} コンボ!`) : '';
     ui.combo.classList.toggle('on', G.comboT > 0 && G.combo > 1);
+    ui.combo.classList.toggle('rush', isRush());
     let maxFat = 0; for (const k of KABUS) if (k.active) maxFat = Math.max(maxFat, k.fat);
     ui.mult.textContent = nAct + '匹';
     ui.fatBar.style.width = (nAct >= MAX_KABU ? 100 : clamp(maxFat / SPLIT_FAT, 0, 1) * 100).toFixed(0) + '%';
@@ -1421,7 +1517,7 @@ function tick(dt) {
   renderer.render(scene, camera);
 }
 flailG.visible = false;
-window.__kabu = { G, KABUS, get K() { return K; }, FL, HOSE, tick, setTool, startGame, camera, renderer, scene };
+window.__kabu = { G, HS, MULTI, KABUS, get K() { return K; }, FL, HOSE, tick, setTool, startGame, camera, renderer, scene };
 frame();
 </script>
 </body></html>
