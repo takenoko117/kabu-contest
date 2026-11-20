@@ -138,13 +138,15 @@ body {
 .rules { list-style: none; margin: 0; padding: 12px 14px; display: grid; gap: 6px; text-align: left;
   background: var(--paper); border: 3px solid var(--ink); border-radius: 18px; font-weight: 800; font-size: 14px; width: 100%; box-sizing: border-box; }
 .rules li { display: flex; gap: 10px; align-items: center; }
-.rules .ic { flex: 0 0 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-family: var(--font-display); font-size: 13px; }
+.rules .ic { flex: 0 0 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; color: var(--ink); font-family: var(--font-display); font-size: 13px; }
 .btn {
   appearance: none; border: 4px solid var(--ink); background: var(--coral); color: #fff; cursor: pointer;
   font-family: var(--font-display); font-size: 28px; padding: 12px 40px 14px; border-radius: 999px;
   box-shadow: 0 7px 0 var(--ink); touch-action: manipulation; transition: transform .1s, box-shadow .1s;
 }
 .btn:active { transform: translateY(5px); box-shadow: 0 2px 0 var(--ink); }
+.btn.x { display: inline-flex; align-items: center; gap: 10px; background: #111; color: #fff; font-size: 20px; padding: 10px 26px 12px; text-decoration: none; box-shadow: 0 6px 0 var(--ink); }
+.btn.x svg { width: 20px; height: 20px; fill: currentColor; }
 .btn.sub { background: var(--paper); color: var(--ink); font-size: 16px; padding: 8px 22px 10px; box-shadow: 0 4px 0 var(--ink); }
 .best { font-weight: 800; font-size: 13px; }
 #loading { font-family: var(--font-display); font-size: 20px; }
@@ -217,6 +219,9 @@ body {
     <div class="best" id="rBest"></div>
     <div class="row">
       <button class="btn" id="againBtn" type="button">もう一回</button>
+    </div>
+    <div class="row">
+      <a class="btn x" id="postBtn" href="https://x.com/intent/tweet" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>結果をポスト</a>
     </div>
     <button class="btn sub" id="copyBtn" type="button">結果をコピー</button>
     <div id="copied" aria-live="polite"></div>
@@ -1222,11 +1227,25 @@ function endGame() {
     if (nb) { best = G.score; store.set('kabuContestBest', String(best)); SFX.fanfare(); }
     $('#rBest').textContent = `自己ベスト ${best.toLocaleString()}`; $('#bestTitle').textContent = `自己ベスト ${best.toLocaleString()}`;
     $('#copied').textContent = '';
+    updatePostLink();
     $('#result').hidden = false; G.mode = 'result';
   }, 1400);
 }
+const GAME_URL = 'https://takenoko117.github.io/kabu-contest/';
+const NL = String.fromCharCode(10);
+function resultText() {
+  const lines = [`かぶくんコンテストで ${G.score.toLocaleString()}点！`, `称号「${$('#rRank').textContent}」`];
+  const sub = [`${G.hits}ヒット`, `最大${G.maxCombo}コンボ`, `最高ふっとび${G.maxFly.toFixed(1)}m`];
+  if (G.maxMulti >= 3) sub.push(`${G.maxMulti}匹まとめてふっとび`);
+  lines.push(sub.join(' / '));
+  return lines.join(NL);
+}
+function updatePostLink() {
+  const q = new URLSearchParams({ text: resultText() + NL, url: GAME_URL, hashtags: 'かぶくんコンテスト' });
+  $('#postBtn').href = 'https://x.com/intent/tweet?' + q.toString();
+}
 $('#copyBtn').addEventListener('click', () => {
-  const txt = `かぶくんコンテストで ${G.score.toLocaleString()}点！ 称号「${$('#rRank').textContent}」 最高ふっとび ${G.maxFly.toFixed(1)}m`;
+  const txt = resultText() + NL + GAME_URL + ' #かぶくんコンテスト';
   const done = (m) => { $('#copied').textContent = m; };
   try { navigator.clipboard.writeText(txt).then(() => done('コピーしました'), () => done(txt)); } catch (e) { done(txt); }
 });
